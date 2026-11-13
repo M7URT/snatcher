@@ -123,8 +123,9 @@ chrome.runtime.onMessage.addListener(msg => {
   $('section').title = scan.pageContext;
 
   items = scan.items.map(it => {
-    const p = SN.pickDestination(settings, scan.host, it.rowContext, scan.pageContext, it.catKey);
-    const why = p.via === 'learned' ? 'your usual folder · ' : p.via === 'row' ? 'from row: ' : p.via === 'page' ? 'from page section · ' : 'default · ';
+    const p = SN.pickDestination(settings, scan.host, it.rowContext, scan.pageContext, it.catKey, it.catText);
+    const where = { category: 'the category', row: 'this row', page: 'the page section' }[p.via];
+    const why = p.via === 'learned' ? 'your usual folder · ' : where ? `“${p.hit}” in ${where} · ` : 'default · ';
     return { ...it, destinationId: p.destinationId, autoId: p.destinationId, via: p.via, why: why + it.rowContext.split(' | ').slice(0, 3).join(' · '), checked: false };
   });
 

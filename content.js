@@ -73,15 +73,33 @@
     return a.href;
   }
 
+  // Links that point at a tracker category: browse.php?cat=5, /torrents?categories[]=2,
+  // /torrents?categoryIds[0]=3, /cat/tv, ?c41=1, /section/…
+  const CAT_HREF = /categor|[?&](cats?|type|types)(\[\d*\])?=|\/cats?\/|[?&]c\d+=|section|browse/i;
+
+  // Just the row's category, e.g. "TV :: Boxsets": category link text, data-category, "cat" cells.
+  function catTextFor(row) {
+    const bits = [];
+    row.querySelectorAll('a[href]').forEach(el => {
+      if (CAT_HREF.test(el.getAttribute('href') || '')) bits.push(clean(el.textContent));
+    });
+    row.querySelectorAll('[data-category], [class*="categor" i], [class*="cat" i]').forEach(el => {
+      bits.push(el.getAttribute('data-category') || '');
+      const t = clean(el.textContent);
+      if (t.length < 60) bits.push(t);
+    });
+    return [...new Set(bits.map(clean).filter(b => b && b.length < 60))].join(' | ').slice(0, 300);
+  }
+
   // Category hints living inside the row: icon alt/title, category links, cells with "cat" classes.
   function rowContextFor(row, title) {
-    const bits = [];
+    const bits = [catTextFor(row)];
     row.querySelectorAll('img[alt], img[title], [title]').forEach(el => {
       const t = el.getAttribute('alt') || el.getAttribute('title');
       if (t && t.length < 80) bits.push(t);
     });
     row.querySelectorAll('a[href]').forEach(el => {
-      if (/cat(egor(y|ies))?[=\/]|[?&]c\d+=|section|browse/i.test(el.getAttribute('href') || '')) {
+      if (CAT_HREF.test(el.getAttribute('href') || '')) {
         bits.push(clean(el.textContent), el.getAttribute('href'));
       }
     });
@@ -97,7 +115,7 @@
   function categoryKeyFor(row) {
     for (const a of row.querySelectorAll('a[href]')) {
       const href = a.getAttribute('href') || '';
-      if (/cat(egor(y|ies))?[=\/]|[?&]c\d+=/i.test(href)) {
+      if (/categor|[?&](cats?|types?)(\[\d*\])?=|\/cats?\/|[?&]c\d+=/i.test(href)) {
         try { const u = new URL(href, location.href); return 'link:' + u.pathname + u.search; } catch (e) { return 'link:' + href; }
       }
     }
@@ -217,7 +235,7 @@
     const row = rowOf(a);
     const kind = linkKind(a);
     const name = titleFor(row, a);
-    const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row) };
+    const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row), catText: catTextFor(row) };
     if (kind === 'magnet') item.magnetUrl = a.href; else item.torrentUrl = a.href;
     // grab the sibling link of the other kind from the same row
     row.querySelectorAll('a[href]').forEach(x => {
@@ -239,7 +257,7 @@
       let item = byRow.get(row);
       if (!item) {
         const name = titleFor(row, a);
-        item = { key: '', name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row) };
+        item = { key: '', name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row), catText: catTextFor(row) };
         byRow.set(row, item);
       }
       if (kind === 'magnet' && !item.magnetUrl) item.magnetUrl = a.href;
@@ -311,7 +329,7 @@
     e.stopPropagation();
     e.stopImmediatePropagation();
     const item = itemForLink(a);
-    const pick = SN.pickDestination(settings, location.hostname, item.rowContext, pageContext(), item.catKey);
+    const pick = SN.pickDestination(settings, location.hostname, item.rowContext, pageContext(), item.catKey, item.catText);
     item.destinationId = pick.destinationId;
     if (settings.confirmOnClick) showPicker(item, pick, e.clientX, e.clientY);
     else send([item]);
@@ -362,7 +380,8 @@
     box.style.left = Math.max(8, Math.min(x - 160, innerWidth - 336)) + 'px';
     box.style.top = Math.max(8, Math.min(y + 12, innerHeight - 190)) + 'px';
     const why = pick.via === 'learned' ? 'Your usual folder for this category'
-      : pick.via === 'default' ? 'No rule matched — using default' : `Matched from ${pick.via === 'row' ? 'this row' : 'page section'}`;
+      : pick.via === 'default' ? 'No rule matched — using default'
+      : `Matched “${pick.hit}” in ${pick.via === 'category' ? 'the category' : pick.via === 'row' ? 'this row' : 'the page section'}`;
     box.innerHTML = `<button class="x" title="Close">×</button><div class="name"></div><div class="why"></div>
       <select></select>
       <div class="row"><button class="primary send">Snatch</button><button class="normal">Download normally</button></div>`;
@@ -390,7 +409,7 @@
       item.destinationId = select.value;
       if (select.value !== pick.destinationId || pick.via === 'learned') {
         const auto = pick.via === 'learned'
-          ? SN.pickDestination({ ...settings, learned: {} }, location.hostname, item.rowContext, pageContext()).destinationId
+          ? SN.pickDestination({ ...settings, learned: {} }, location.hostname, item.rowContext, pageContext(), '', item.catText).destinationId
           : pick.destinationId;
         SN.learnDestination(location.hostname, item.catKey, select.value, auto);
       }

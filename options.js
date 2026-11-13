@@ -223,7 +223,7 @@ function runTest() {
   if (!t) { $('testResult').textContent = ''; return; }
   const p = SN.pickDestination(s, '', t, '');
   const d = SN.findDestination(s, p.destinationId);
-  $('testResult').textContent = p.ruleId ? `→ ${d ? d.name : '?'} (rule #${s.rules.findIndex(r => r.id === p.ruleId) + 1})` : `→ ${d ? d.name : '?'} (no rule matched, default)`;
+  $('testResult').textContent = p.ruleId ? `→ ${d ? d.name : '?'} (rule #${s.rules.findIndex(r => r.id === p.ruleId) + 1} matched “${p.hit}”)` : `→ ${d ? d.name : '?'} (no rule matched, default)`;
 }
 $('testText').oninput = runTest;
 

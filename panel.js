@@ -224,10 +224,11 @@
     const old = new Map(items.map(i => [i.key, i]));
     const next = info.items.map(it => {
       const prev = old.get(it.key);
-      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders, size: it.size, catKey: it.catKey }); }
-      const p = SN.pickDestination(settings, info.host, it.rowContext, info.pageContext, it.catKey);
-      const byRules = p.via === 'learned' ? SN.pickDestination({ ...settings, learned: {} }, info.host, it.rowContext, info.pageContext).destinationId : p.destinationId;
-      const why = p.via === 'learned' ? 'your usual folder for this category · ' : p.via === 'row' ? 'from row: ' : p.via === 'page' ? 'from page section · ' : 'default · ';
+      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders, size: it.size, catKey: it.catKey, catText: it.catText }); }
+      const p = SN.pickDestination(settings, info.host, it.rowContext, info.pageContext, it.catKey, it.catText);
+      const byRules = p.via === 'learned' ? SN.pickDestination({ ...settings, learned: {} }, info.host, it.rowContext, info.pageContext, '', it.catText).destinationId : p.destinationId;
+      const where = { category: 'the category', row: 'this row', page: 'the page section' }[p.via];
+      const why = p.via === 'learned' ? 'your usual folder for this category · ' : where ? `“${p.hit}” in ${where} · ` : 'default · ';
       return { ...it, destinationId: p.destinationId, autoId: p.destinationId, ruleAuto: byRules, via: p.via,
         why: why + it.rowContext.split(' | ').slice(0, 3).join(' · '), checked: false, status: '', error: '' };
     });

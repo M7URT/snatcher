@@ -527,7 +527,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   if (info.menuItemId === 'sn_auto') {
     const host = ctx ? ctx.host : new URL(tab.url).hostname;
-    item.destinationId = SN.pickDestination(settings, host, item.rowContext, ctx ? ctx.pageContext : tab.title).destinationId;
+    item.destinationId = SN.pickDestination(settings, host, item.rowContext, ctx ? ctx.pageContext : tab.title, item.catKey, item.catText).destinationId;
   } else {
     item.destinationId = String(info.menuItemId).replace('sn_dest_', '');
   }
