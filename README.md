@@ -67,6 +67,8 @@ Use the tester box under the rules to try out text, and hover the grey line unde
   - Tick what you want (or **All** / filter, then **All**), adjust any folder or use **Set ticked to…**, then press **Snatch N**. Everything is sent one after another with no more clicks.
   - Ticked rows get an orange outline on the page, and sent rows a green dashed one. Click a name to scroll to it.
   - Failures show ✕ (hover for why) and stay ticked, so one more click retries them.
+  - **Filter box**: type several words in any order (`rivals 1080p`). Dots and dashes count as spaces. Use `"exact phrase"` in quotes for words together and `-word` to exclude (`rivals -x265`). It searches the name, the row's category and the size.
+  - Each torrent shows its **size** and seeder count, e.g. "1.01 GiB · 42 seeders". The size is read from a Size column, a size element in the row, or any "700 MB"-style text in the row.
   - Full release names wrap onto several lines, and you can drag the panel's left edge to widen it. Hover a folder dropdown to see why it was picked.
   - **Hide 0 seeds** (on by default) hides torrents whose seeder count is 0. The count is read from a Seeders/Seeds/S column or a seeder element in the row. Rows where no count can be found are always shown.
   - Click anywhere on the page outside the panel to close it. Your ticks are kept for when you reopen it.

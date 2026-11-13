@@ -145,19 +145,53 @@
     return bits.map(clean).filter(Boolean);
   }
 
-  function seedColumn(table) {
-    if (seedColCache.has(table)) return seedColCache.get(table);
+  // Index of the column whose header passes `test(labels)`, or -1. Cached per table.
+  function headerColumn(table, cache, test) {
+    if (cache.has(table)) return cache.get(table);
     let found = -1;
     // Header rows only (thead, or rows made of <th>, or the first row) so a torrent named "…Seed…" can't match.
     const headRows = [...table.querySelectorAll('thead tr'), ...[...table.rows].slice(0, 3).filter((tr, i) => i === 0 || tr.querySelector('th'))];
     outer: for (const tr of headRows) {
       for (const { cell, col } of cellsWithIndex(tr)) {
-        const labels = headerLabel(cell);
-        if (labels.some(l => SEED_HEAD.test(l)) && !labels.some(l => /leech|peer.*leech/i.test(l))) { found = col; break outer; }
+        if (test(headerLabel(cell))) { found = col; break outer; }
       }
     }
-    seedColCache.set(table, found);
+    cache.set(table, found);
     return found;
+  }
+
+  function seedColumn(table) {
+    return headerColumn(table, seedColCache,
+      labels => labels.some(l => SEED_HEAD.test(l)) && !labels.some(l => /leech|peer.*leech/i.test(l)));
+  }
+
+  // ---------- size ----------
+  // "1.01 GiB", "943,92 MB", "1.2GB", "700 MiB" — from a Size column, a size-classed element, or the row text.
+
+  const SIZE_RE = /(\d+(?:[.,]\d+)?)\s*(bytes|[KMGTP]i?B)\b/i;
+  const sizeColCache = new WeakMap();
+
+  function sizeText(text) {
+    const m = String(text || '').match(SIZE_RE);
+    return m ? `${m[1]} ${m[2].length > 2 ? m[2][0].toUpperCase() + m[2].slice(1) : m[2].toUpperCase()}` : null;
+  }
+
+  function sizeFor(row) {
+    if (row.tagName === 'TR') {
+      const table = row.closest('table');
+      const col = table ? headerColumn(table, sizeColCache, labels => labels.some(l => /^(size|taille|größe|grosse|tamaño)$|\bsize\b/i.test(l))) : -1;
+      if (col >= 0) {
+        const hit = cellsWithIndex(row).find(c => c.col === col);
+        const s = hit && sizeText(hit.cell.textContent);
+        if (s) return s;
+      }
+    }
+    const el = row.querySelector('[data-size], [class*="size" i], [title*="size" i]');
+    const s = el && sizeText(el.getAttribute('data-size') || el.textContent || el.getAttribute('title'));
+    if (s) return s;
+    // Last resort: the row's own text, ignoring the torrent's name (a title like "…4GB…" isn't its size).
+    const name = [...row.querySelectorAll('a[href]')].map(a => a.textContent).sort((x, y) => y.length - x.length)[0] || '';
+    return sizeText(row.textContent.replace(name, ' '));
   }
 
   function toNumber(text) {
@@ -183,7 +217,7 @@
     const row = rowOf(a);
     const kind = linkKind(a);
     const name = titleFor(row, a);
-    const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), catKey: categoryKeyFor(row) };
+    const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row) };
     if (kind === 'magnet') item.magnetUrl = a.href; else item.torrentUrl = a.href;
     // grab the sibling link of the other kind from the same row
     row.querySelectorAll('a[href]').forEach(x => {
@@ -205,7 +239,7 @@
       let item = byRow.get(row);
       if (!item) {
         const name = titleFor(row, a);
-        item = { key: '', name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), catKey: categoryKeyFor(row) };
+        item = { key: '', name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row) };
         byRow.set(row, item);
       }
       if (kind === 'magnet' && !item.magnetUrl) item.magnetUrl = a.href;

@@ -51,7 +51,8 @@
     .sp-name { overflow: hidden; cursor: pointer; }
     .sp-title { overflow-wrap: break-word; line-height: 1.35; }
     .sp-seeds { color: #9a9ca5; font-size: 11px; margin-top: 2px; }
-    .sp-seeds.zero { color: #e0574f; }
+    .sp-seeds .zero { color: #e0574f; }
+    .sp-size { color: #c9cbd2; }
     .sp-have { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; font-size: 10px; font-weight: 600;
                background: #1f3a2b; color: #6fd39b; }
     .sp-item.got .sp-title { color: #9a9ca5; }
@@ -92,7 +93,7 @@
       </div>
       <div class="sp-tools">
         <label><input type="checkbox" class="sp-all"> All</label>
-        <input type="search" class="sp-filter" placeholder="Filter…">
+        <input type="search" class="sp-filter" placeholder="Filter: rivals 1080p -x265" title="All words must match, any order. &quot;exact phrase&quot; in quotes, -word to exclude.">
         <label title="Hide torrents whose seeder count is 0"><input type="checkbox" class="sp-seedonly"> Hide 0 seeds</label>
         <select class="sp-setall" title="Change the folder of every ticked torrent"><option value="">Set ticked to…</option></select>
         <button class="sp-icon sp-rescan" title="Re-scan the page">↻</button>
@@ -223,7 +224,7 @@
     const old = new Map(items.map(i => [i.key, i]));
     const next = info.items.map(it => {
       const prev = old.get(it.key);
-      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders, catKey: it.catKey }); }
+      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders, size: it.size, catKey: it.catKey }); }
       const p = SN.pickDestination(settings, info.host, it.rowContext, info.pageContext, it.catKey);
       const byRules = p.via === 'learned' ? SN.pickDestination({ ...settings, learned: {} }, info.host, it.rowContext, info.pageContext).destinationId : p.destinationId;
       const why = p.via === 'learned' ? 'your usual folder for this category · ' : p.via === 'row' ? 'from row: ' : p.via === 'page' ? 'from page section · ' : 'default · ';
@@ -246,9 +247,27 @@
   // Torrents the seeder filter hides (count read as 0). Unknown counts are always shown.
   const dead = i => settings.hideNoSeeders !== false && i.seeders === 0 && !i.status;
 
+  // Filter box: every word must appear, in any order. "quoted phrase" matches words together,
+  // -word excludes. Dots, dashes and underscores count as spaces, so "rivals 1080p" finds
+  // "Rivals.2024.S02E01.1080p.HEVC". Searches the name, the row's category text and the size.
+  function filterFor(query) {
+    const norm = t => ' ' + String(t || '').toLowerCase().replace(/[._\-+()[\]{}|/\\,:;]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    const terms = [];
+    query.replace(/(-?)"([^"]*)"|(-?)(\S+)/g, (_, n1, phrase, n2, word) => {
+      const text = norm(phrase !== undefined ? phrase : word).trim();
+      if (text) terms.push({ exclude: !!(n1 || n2), text });
+      return '';
+    });
+    if (!terms.length) return () => true;
+    return it => {
+      const hay = norm(`${it.name} ${it.rowContext} ${it.size || ''}`);
+      return terms.every(t => hay.includes(t.text) !== t.exclude);
+    };
+  }
+
   function visible() {
-    const q = panel.querySelector('.sp-filter').value.trim().toLowerCase();
-    return items.filter(i => !dead(i) && (!q || i.name.toLowerCase().includes(q) || i.rowContext.toLowerCase().includes(q)));
+    const match = filterFor(panel.querySelector('.sp-filter').value);
+    return items.filter(i => !dead(i) && match(i));
   }
 
   function setChecked(item, value) {
@@ -324,10 +343,14 @@ Read from this row: ${item.rowContext}`;
       });
       title.title = 'Click to show it on the page';
       const seeds = row.querySelector('.sp-seeds');
+      // Meta line: "1.01 GiB · 42 seeders" (whichever the tracker shows).
+      const meta = [];
+      if (it.size) meta.push(Object.assign(document.createElement('span'), { className: 'sp-size', textContent: it.size }));
       if (it.seeders !== null && it.seeders !== undefined) {
-        seeds.textContent = `${it.seeders} seeder${it.seeders === 1 ? '' : 's'}`;
-        seeds.classList.toggle('zero', it.seeders === 0);
+        meta.push(Object.assign(document.createElement('span'), {
+          className: it.seeders === 0 ? 'zero' : '', textContent: `${it.seeders} seeder${it.seeders === 1 ? '' : 's'}` }));
       }
+      meta.forEach((m, i) => { if (i) seeds.appendChild(document.createTextNode(' · ')); seeds.appendChild(m); });
       const got = haveLabel(it);
       if (got) {
         const tag = document.createElement('span');
