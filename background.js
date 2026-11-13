@@ -59,12 +59,12 @@ function digestHeader(client, method, url, ch, nc) {
 async function authFetch(client, url, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const credentials = client.username ? 'omit' : 'include';
-  const go = async auth => {
+  const go = async (auth, probe = false) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
     try {
-      return await fetch(url, { ...opts, method, credentials, signal: ctrl.signal,
-        headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
+      return await fetch(url, { ...opts, method: probe ? 'GET' : method, body: probe ? undefined : opts.body,
+        credentials, signal: ctrl.signal, headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
     } catch (e) {
       if (e.name === 'AbortError') throw new Error(`${client.name}: no answer from the server within 30 seconds`);
       throw new Error(`${client.name}: couldn't reach the server (${e.message})`);
@@ -74,28 +74,52 @@ async function authFetch(client, url, opts = {}) {
   };
   if (!client.username) return go(null);
 
-  // Remembered scheme from an earlier 401 (lives as long as the service worker).
-  const cached = digestCache[client.id];
-  const first = !cached ? null
-    : cached.scheme === 'basic' ? basicHeader(client)
-    : digestHeader(client, method, url, cached.challenge, ++cached.nc);
-  let res = await go(first);
-  if (res.status !== 401) return res;
+  // Login type and Digest challenge are remembered per server (as long as the service worker lives).
+  const learn = www => {
+    if (/^\s*Digest/i.test(www)) digestCache[client.id] = { scheme: 'digest', challenge: parseChallenge(www.replace(/^\s*Digest\s+/i, '')), nc: 0, at: Date.now() };
+    else if (/^\s*Basic/i.test(www) || !www) digestCache[client.id] = { scheme: 'basic', at: Date.now() };
+  };
+  const loginHeader = () => {
+    const c = digestCache[client.id];
+    if (!c) return null;
+    return c.scheme === 'basic' ? basicHeader(client) : digestHeader(client, method, url, c.challenge, ++c.nc);
+  };
 
-  const www = res.headers.get('WWW-Authenticate') || '';
-  if (/^\s*Digest/i.test(www)) {
-    const challenge = parseChallenge(www.replace(/^\s*Digest\s+/i, ''));
-    digestCache[client.id] = { scheme: 'digest', challenge, nc: 1 };
-    res = await go(digestHeader(client, method, url, challenge, 1));
-  } else if (/^\s*Basic/i.test(www) || !www) {
-    digestCache[client.id] = { scheme: 'basic' };
-    res = await go(basicHeader(client));
-  }
+  // Uploads must never be refused with a 401: the server answers before reading the upload, the
+  // unread bytes stay on the connection, and the next request then gets HTTP 400. So for uploads
+  // SNATCHER first gets a fresh login challenge with a small body-less GET (Apache's Digest
+  // challenges expire after ~5 minutes; anything older than 4 is refreshed).
+  const upload = method !== 'GET';
+  const probe = async () => {
+    for (let i = 0; i < 2; i++) { // a first 400 here just clears junk left on the connection
+      const p = await go(null, true);
+      if (p.status === 401) { learn(p.headers.get('WWW-Authenticate') || ''); return; }
+      if (p.status !== 400) return;
+    }
+  };
+  const fresh = c => c && (c.scheme === 'basic' || Date.now() - c.at < 240000);
+  if (upload && !fresh(digestCache[client.id])) await probe();
+
+  let res = await go(loginHeader());
   if (res.status === 401) {
-    delete digestCache[client.id];
-    res.snatcherAuth = /^\s*Digest/i.test(www) ? 'Digest' : /^\s*Basic/i.test(www) ? 'Basic' : 'unknown';
+    // No challenge yet (plain GET) or the Digest nonce went stale: take the new challenge, retry once.
+    const www = res.headers.get('WWW-Authenticate') || '';
+    if (upload) await probe(); else learn(www);
+    res = await go(loginHeader());
+    if (res.status === 401) {
+      delete digestCache[client.id];
+      res.snatcherAuth = /^\s*Digest/i.test(www) ? 'Digest' : /^\s*Basic/i.test(www) ? 'Basic' : 'unknown';
+    }
   }
   return res;
+}
+
+// First bit of an unexpected error page, so "HTTP 400" comes with the server's own words.
+async function serverSays(res) {
+  try {
+    const t = (await res.clone().text()).replace(/<(script|style)[\s\S]*?<\/(script|style)>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return t ? ` — server said: "${t.slice(0, 160)}"` : '';
+  } catch (e) { return ''; }
 }
 
 // Readable reason for a final 401/403, so a failed login says which login type was tried.
@@ -138,7 +162,7 @@ async function addToRutorrent(client, dest, payload) {
   const res = await authFetch(client, baseUrl(client) + 'php/addtorrent.php?json=1', { method: 'POST', body: form });
   if (res.status === 401 || res.status === 403) throw new Error(loginError(client, res));
   if (res.status === 404) throw new Error(`${client.name}: addtorrent.php not found — check the ruTorrent URL`);
-  if (!res.ok) throw new Error(`${client.name}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`${client.name}: HTTP ${res.status}${await serverSays(res)}`);
 
   const text = await res.text();
   // Newer ruTorrent answers {"result":"Success"}; older builds redirect to ...?result[]=Success
@@ -166,7 +190,7 @@ async function testClient(client) {
     if (/rutorrent/i.test(t)) return { ok: true, info: 'ruTorrent found (settings endpoint missing, adding should still work)' };
     return { ok: false, error: `Not found (HTTP 404) — URL should point at the ruTorrent folder` };
   }
-  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}${await serverSays(res)}` };
   const t = await res.text();
   if (/<form[^>]+(login|password)/i.test(t)) return { ok: false, error: 'Got a login page instead of ruTorrent' };
   return { ok: true, info: 'Connected to ruTorrent' };
