@@ -65,6 +65,8 @@ Use the tester box under the rules to try out text, and hover the grey line unde
   - Tick what you want (or **All** / filter, then **All**), adjust any folder or use **Set ticked to…**, then press **Snatch N**. Everything is sent one after another with no more clicks.
   - Ticked rows get an orange outline on the page, and sent rows a green dashed one. Click a name to scroll to it.
   - Failures show ✕ (hover for why) and stay ticked, so one more click retries them.
+  - Full release names wrap onto several lines, and you can drag the panel's left edge to widen it. Hover a folder dropdown to see why it was picked.
+  - **Hide 0 seeds** (on by default) hides torrents whose seeder count is 0. The count is read from a Seeders/Seeds/S column or a seeder element in the row. Rows where no count can be found are always shown.
   - It re-scans when the page loads more results. If you leave it open it comes back on the next page in that tab; **⇥** tucks it into a small tab on the edge.
   - Settings → Behaviour can switch the toolbar icon back to the small popup. The shortcut can be changed at `brave://extensions/shortcuts`.
 - **Toolbar popup**: lists every torrent on the page with its auto-picked folder. Tick the ones you want (or All), change any folder, then click **Snatch N**. Each row shows ✓/✕ when done (hover ✕ for the error).

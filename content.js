@@ -104,11 +104,68 @@
     return [...new Set(bits.map(clean).filter(Boolean))].join(' | ').slice(0, 2000);
   }
 
+  // ---------- seeders ----------
+  // Tables: find the column whose header says Seeders/Seeds/S/↑ (text, icon alt or title) and read
+  // that cell. Other layouts: an element whose class/title mentions "seed". null = couldn't tell.
+
+  const seedColCache = new WeakMap();
+  const SEED_HEAD = /^(s|se|sd|seeds?|seeders?|seeding|↑|▲|⬆)$|seed/i;
+
+  function cellsWithIndex(tr) {
+    const out = [];
+    let col = 0;
+    for (const cell of tr.cells) {
+      out.push({ cell, col });
+      col += cell.colSpan || 1;
+    }
+    return out;
+  }
+
+  function headerLabel(cell) {
+    const bits = [cell.textContent, cell.getAttribute('title') || ''];
+    cell.querySelectorAll('img, [title], [aria-label]').forEach(e => bits.push(e.getAttribute('alt') || '', e.getAttribute('title') || '', e.getAttribute('aria-label') || ''));
+    return bits.map(clean).filter(Boolean);
+  }
+
+  function seedColumn(table) {
+    if (seedColCache.has(table)) return seedColCache.get(table);
+    let found = -1;
+    // Header rows only (thead, or rows made of <th>, or the first row) so a torrent named "…Seed…" can't match.
+    const headRows = [...table.querySelectorAll('thead tr'), ...[...table.rows].slice(0, 3).filter((tr, i) => i === 0 || tr.querySelector('th'))];
+    outer: for (const tr of headRows) {
+      for (const { cell, col } of cellsWithIndex(tr)) {
+        const labels = headerLabel(cell);
+        if (labels.some(l => SEED_HEAD.test(l)) && !labels.some(l => /leech|peer.*leech/i.test(l))) { found = col; break outer; }
+      }
+    }
+    seedColCache.set(table, found);
+    return found;
+  }
+
+  function toNumber(text) {
+    const m = String(text || '').replace(/[,\s]/g, '').match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+
+  function seedersFor(row) {
+    if (row.tagName === 'TR') {
+      const table = row.closest('table');
+      const col = table ? seedColumn(table) : -1;
+      if (col >= 0) {
+        const hit = cellsWithIndex(row).find(c => c.col === col);
+        if (hit) { const n = toNumber(hit.cell.textContent); if (n !== null) return n; }
+      }
+    }
+    const el = row.querySelector('[data-seeders], [class*="seed" i], [title*="seed" i]');
+    if (el) return toNumber(el.getAttribute('data-seeders') || el.textContent || el.getAttribute('title'));
+    return null;
+  }
+
   function itemForLink(a) {
     const row = rowOf(a);
     const kind = linkKind(a);
     const name = titleFor(row, a);
-    const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name) };
+    const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row) };
     if (kind === 'magnet') item.magnetUrl = a.href; else item.torrentUrl = a.href;
     // grab the sibling link of the other kind from the same row
     row.querySelectorAll('a[href]').forEach(x => {
@@ -130,7 +187,7 @@
       let item = byRow.get(row);
       if (!item) {
         const name = titleFor(row, a);
-        item = { key: '', name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name) };
+        item = { key: '', name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row) };
         byRow.set(row, item);
       }
       if (kind === 'magnet' && !item.magnetUrl) item.magnetUrl = a.href;

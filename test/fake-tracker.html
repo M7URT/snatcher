@@ -21,26 +21,26 @@
 <nav><a href="https://tracker.example/browse?cat=movies">Movies</a> <a class="active" href="https://tracker.example/browse?cat=tv">TV</a> <a href="https://tracker.example/browse?cat=apps">Apps</a></nav>
 <h1>Browse TV</h1>
 <table>
-  <tr><th>Cat</th><th>Name</th><th>DL</th></tr>
+  <tr><th>Cat</th><th>Name</th><th>DL</th><th><img alt="Seeders" src="data:,"></th><th>Leechers</th></tr>
   <tr>
     <td><a href="https://tracker.example/browse.php?cat=5"><img alt="TV/HD" src="data:,"></a></td>
     <td><a href="https://tracker.example/details.php?id=1">Some.Show.S02E05.1080p.WEB</a></td>
-    <td><a href="https://tracker.example/download.php?id=1&passkey=abc"><img alt="Download" src="data:,"></a> <a href="magnet:?xt=urn:btih:aaa&dn=Some.Show">M</a></td>
+    <td><a href="https://tracker.example/download.php?id=1&passkey=abc"><img alt="Download" src="data:,"></a> <a href="magnet:?xt=urn:btih:aaa&dn=Some.Show">M</a></td><td>42</td><td>3</td>
   </tr>
   <tr>
     <td><a href="https://tracker.example/browse.php?cat=1"><img alt="Movies/Foreign" src="data:,"></a></td>
     <td><a href="https://tracker.example/details.php?id=2">Un.Film.Francais.2021.1080p.BluRay</a></td>
-    <td><a href="https://tracker.example/download.php?id=2&passkey=abc">DL</a></td>
+    <td><a href="https://tracker.example/download.php?id=2&passkey=abc">DL</a></td><td>0</td><td>3</td>
   </tr>
   <tr>
     <td><a href="https://tracker.example/browse.php?cat=9"><img alt="Apps/Windows" src="data:,"></a></td>
     <td><a href="https://tracker.example/details.php?id=3">Cool.Editor.v5.x64</a></td>
-    <td><a href="https://tracker.example/download.php?id=3&passkey=abc">DL</a></td>
+    <td><a href="https://tracker.example/download.php?id=3&passkey=abc">DL</a></td><td>1,204</td><td>3</td>
   </tr>
 </table>
 <div class="cards">
-  <div class="card"><span class="category">Movies</span><a href="https://tracker.example/t/44">Big.Movie.2024.2160p</a><a href="https://tracker.example/dl/44/Big.Movie.torrent">get</a></div>
-  <div class="card"><span class="category">Music</span><a href="https://tracker.example/t/45">An.Album.FLAC</a><a href="https://tracker.example/dl/45/An.Album.torrent">get</a></div>
+  <div class="card"><span class="category">Movies</span><span class="seeders">0</span><a href="https://tracker.example/t/44">Big.Movie.2024.2160p</a><a href="https://tracker.example/dl/44/Big.Movie.torrent">get</a></div>
+  <div class="card"><span class="category">Music</span><span class="seeders" title="Seeders">7</span><a href="https://tracker.example/t/45">An.Album.FLAC</a><a href="https://tracker.example/dl/45/An.Album.torrent">get</a></div>
 </div>
 <script src="../lib/common.js"></script>
 <script src="../content.js"></script>

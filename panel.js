@@ -42,13 +42,17 @@
     .sp-filter { flex: 1; }
     .sp-setall { width: 120px; }
     .sp-list { flex: 1; overflow-y: auto; }
-    .sp-item { display: grid; grid-template-columns: 18px 1fr 150px 16px; gap: 8px; align-items: center; padding: 7px 12px; border-bottom: 1px solid #262931; }
+    .sp-item { display: grid; grid-template-columns: 18px 1fr 150px 16px; gap: 8px; align-items: start; padding: 8px 12px; border-bottom: 1px solid #262931; }
+    .sp-item > input { margin-top: 3px; }
+    .sp-item > .sp-st { margin-top: 4px; }
     .sp-item:hover { background: #1f2228; }
     .sp-item.on { background: #241c1a; }
     .sp-name { overflow: hidden; cursor: pointer; }
-    .sp-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sp-why { color: #9a9ca5; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sp-kind { font-size: 10px; color: #9a9ca5; border: 1px solid #33373f; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
+    .sp-title { overflow-wrap: break-word; line-height: 1.35; }
+    .sp-seeds { color: #9a9ca5; font-size: 11px; margin-top: 2px; }
+    .sp-seeds.zero { color: #e0574f; }
+    .sp-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+    .sp-grip:hover, .sp-grip.drag { background: rgba(224,87,58,.5); }
     .sp-item select { width: 100%; }
     .sp-item select.auto { border-color: #5a4a2a; }
     .sp-st { text-align: center; font-weight: 700; }
@@ -75,6 +79,7 @@
     panel = document.createElement('div');
     panel.className = 'sp';
     panel.innerHTML = `
+      <div class="sp-grip" title="Drag to resize"></div>
       <div class="sp-head">
         <span class="sp-brand">SNATCHER</span><span class="sp-sec"></span>
         <button class="sp-icon sp-settings" title="Settings">⚙</button>
@@ -84,6 +89,7 @@
       <div class="sp-tools">
         <label><input type="checkbox" class="sp-all"> All</label>
         <input type="search" class="sp-filter" placeholder="Filter…">
+        <label title="Hide torrents whose seeder count is 0"><input type="checkbox" class="sp-seedonly"> Hide 0 seeds</label>
         <select class="sp-setall" title="Change the folder of every ticked torrent"><option value="">Set ticked to…</option></select>
         <button class="sp-icon sp-rescan" title="Re-scan the page">↻</button>
       </div>
@@ -117,7 +123,29 @@
       render();
     };
     q('.sp-send').onclick = sendTicked;
+    q('.sp-seedonly').onchange = e => {
+      settings.hideNoSeeders = e.target.checked;
+      chrome.storage.local.set({ hideNoSeeders: e.target.checked });
+      render();
+    };
+    wireResize(q('.sp-grip'));
     built = true;
+  }
+
+  function wireResize(grip) {
+    grip.onmousedown = e => {
+      e.preventDefault();
+      grip.classList.add('drag');
+      const move = ev => { panel.style.width = Math.max(360, Math.min(innerWidth - 40, innerWidth - ev.clientX)) + 'px'; };
+      const up = () => {
+        document.removeEventListener('mousemove', move, true);
+        document.removeEventListener('mouseup', up, true);
+        grip.classList.remove('drag');
+        chrome.storage.local.set({ panelWidth: parseInt(panel.style.width, 10) });
+      };
+      document.addEventListener('mousemove', move, true);
+      document.addEventListener('mouseup', up, true);
+    };
   }
 
   // ---------- open / close ----------
@@ -126,6 +154,8 @@
     settings = await SN.getSettings();
     if (!built) build();
     isOpen = true;
+    panel.style.width = (settings.panelWidth || 520) + 'px';
+    panel.querySelector('.sp-seedonly').checked = settings.hideNoSeeders !== false;
     fillSetAll();
     rescan();
     setCollapsed(!!startCollapsed);
@@ -162,7 +192,7 @@
     const old = new Map(items.map(i => [i.key, i]));
     const next = info.items.map(it => {
       const prev = old.get(it.key);
-      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext }); }
+      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders }); }
       const p = SN.pickDestination(settings, info.host, it.rowContext, info.pageContext);
       const why = p.via === 'row' ? 'from row: ' : p.via === 'page' ? 'from page section · ' : 'default · ';
       return { ...it, destinationId: p.destinationId, autoId: p.destinationId, via: p.via,
@@ -181,9 +211,12 @@
     render();
   }
 
+  // Torrents the seeder filter hides (count read as 0). Unknown counts are always shown.
+  const dead = i => settings.hideNoSeeders !== false && i.seeders === 0 && !i.status;
+
   function visible() {
     const q = panel.querySelector('.sp-filter').value.trim().toLowerCase();
-    return q ? items.filter(i => i.name.toLowerCase().includes(q) || i.rowContext.toLowerCase().includes(q)) : items;
+    return items.filter(i => !dead(i) && (!q || i.name.toLowerCase().includes(q) || i.rowContext.toLowerCase().includes(q)));
   }
 
   function setChecked(item, value) {
@@ -203,6 +236,9 @@
       sel.appendChild(o);
     }
     sel.classList.toggle('auto', item.destinationId === item.autoId && item.via !== 'default');
+    sel.title = `Picked ${item.why}
+
+Read from this row: ${item.rowContext}`;
     sel.disabled = item.status === 'queued' || item.status === 'sending';
     sel.onchange = () => { item.destinationId = sel.value; setChecked(item, true); render(); };
     return sel;
@@ -232,20 +268,22 @@
     for (const it of visible()) {
       const row = document.createElement('div');
       row.className = 'sp-item' + (it.checked ? ' on' : '');
-      row.innerHTML = '<input type="checkbox"><div class="sp-name"><div class="sp-title"></div><div class="sp-why"></div></div><span class="sel"></span><div class="sp-st"></div>';
+      row.innerHTML = '<input type="checkbox"><div class="sp-name"><div class="sp-title"></div><div class="sp-seeds"></div></div><span class="sel"></span><div class="sp-st"></div>';
       const cb = row.querySelector('input');
       cb.checked = it.checked;
       cb.disabled = it.status === 'queued' || it.status === 'sending';
       cb.onchange = () => { setChecked(it, cb.checked); row.classList.toggle('on', cb.checked); updateFooter(); };
 
-      const kind = document.createElement('span');
-      kind.className = 'sp-kind';
-      kind.textContent = it.torrentUrl && (settings.preferTorrent || !it.magnetUrl) ? 'torrent' : 'magnet';
       const title = row.querySelector('.sp-title');
-      title.append(kind, document.createTextNode(it.name));
-      title.title = it.name + '\n(click to show it on the page)';
-      row.querySelector('.sp-why').textContent = it.why;
-      row.querySelector('.sp-why').title = it.rowContext;
+      // Allow line breaks after . _ - so release names wrap at their separators, not mid-word.
+      it.name.split(/(?<=[._\-])/).forEach((part, i) => {
+        if (i) title.appendChild(document.createElement('wbr'));
+        title.appendChild(document.createTextNode(part));
+      });
+      title.title = 'Click to show it on the page';
+      const seeds = row.querySelector('.sp-seeds');
+      if (it.seeders === null || it.seeders === undefined) seeds.remove();
+      else { seeds.textContent = `${it.seeders} seeder${it.seeders === 1 ? '' : 's'}`; seeds.classList.toggle('zero', it.seeders === 0); }
       row.querySelector('.sp-name').onclick = () => reveal(it);
       row.querySelector('.sel').replaceWith(destSelect(it));
 
@@ -260,7 +298,7 @@
   }
 
   function updateFooter() {
-    const ticked = items.filter(i => i.checked && i.status !== 'done');
+    const ticked = items.filter(i => i.checked && i.status !== 'done' && !dead(i));
     const vis = visible();
     panel.querySelector('.sp-all').checked = vis.length > 0 && vis.every(i => i.checked);
     const btn = panel.querySelector('.sp-send');
@@ -274,7 +312,9 @@
       btn.textContent = ticked.length ? `Snatch ${ticked.length}` : 'Snatch';
     }
     const done = items.filter(i => i.status === 'done').length;
-    panel.querySelector('.sp-count').textContent = `${items.filter(i => i.checked).length} ticked · ${items.length} on page` + (done ? ` · ${done} sent` : '');
+    const hidden = items.filter(dead).length;
+    panel.querySelector('.sp-count').textContent = `${items.filter(i => i.checked).length} ticked · ${items.length - hidden} shown` +
+      (hidden ? ` · ${hidden} hidden (0 seeds)` : '') + (done ? ` · ${done} sent` : '');
     if (tab) tab.textContent = items.filter(i => i.checked).length ? `SNATCHER · ${items.filter(i => i.checked).length}` : 'SNATCHER';
   }
 
@@ -315,7 +355,7 @@
   // ---------- sending ----------
 
   async function sendTicked() {
-    const chosen = items.filter(i => i.checked && i.status !== 'done');
+    const chosen = items.filter(i => i.checked && i.status !== 'done' && !dead(i));
     if (!chosen.length || sending) return;
     sending = true;
     items.forEach(i => { i.batch = false; });
