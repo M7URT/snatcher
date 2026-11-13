@@ -50,9 +50,28 @@ function digestHeader(client, method, url, ch, nc) {
 
 // fetch() to ruTorrent with the right login. Tries a cached Digest nonce first; on a 401 it reads
 // the server's challenge (Digest or Basic) and retries once.
+//
+// With a username set, SNATCHER does the whole login itself and tells the browser to keep out
+// (credentials: 'omit'). Otherwise Brave tries to answer the server's 401 challenge on its own: with
+// a ruTorrent tab logged in it quietly uses that saved login, and without one the request stalls,
+// so sends only worked while ruTorrent was open. Without a username we fall back to the browser's
+// own session (cookies / saved login) for setups that use a login page instead.
 async function authFetch(client, url, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
-  const go = auth => fetch(url, { ...opts, method, credentials: 'include', headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
+  const credentials = client.username ? 'omit' : 'include';
+  const go = async auth => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    try {
+      return await fetch(url, { ...opts, method, credentials, signal: ctrl.signal,
+        headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error(`${client.name}: no answer from the server within 30 seconds`);
+      throw new Error(`${client.name}: couldn't reach the server (${e.message})`);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   if (!client.username) return go(null);
 
   // Remembered scheme from an earlier 401 (lives as long as the service worker).
@@ -72,8 +91,17 @@ async function authFetch(client, url, opts = {}) {
     digestCache[client.id] = { scheme: 'basic' };
     res = await go(basicHeader(client));
   }
-  if (res.status === 401) delete digestCache[client.id];
+  if (res.status === 401) {
+    delete digestCache[client.id];
+    res.snatcherAuth = /^\s*Digest/i.test(www) ? 'Digest' : /^\s*Basic/i.test(www) ? 'Basic' : 'unknown';
+  }
   return res;
+}
+
+// Readable reason for a final 401/403, so a failed login says which login type was tried.
+function loginError(client, res) {
+  const how = res.snatcherAuth ? ` (server asked for a ${res.snatcherAuth} login and rejected SNATCHER's answer)` : '';
+  return `${client.name}: login rejected, HTTP ${res.status}${how} — check the username and password in SNATCHER settings`;
 }
 
 // rtorrent needs an absolute path. Folder names like "TV_SHOWS" are joined onto the server's
@@ -108,7 +136,7 @@ async function addToRutorrent(client, dest, payload) {
   if (client.startPaused) form.append('torrents_start_stopped', '1');
 
   const res = await authFetch(client, baseUrl(client) + 'php/addtorrent.php?json=1', { method: 'POST', body: form });
-  if (res.status === 401 || res.status === 403) throw new Error(`${client.name}: login rejected (HTTP ${res.status}) — check username/password`);
+  if (res.status === 401 || res.status === 403) throw new Error(loginError(client, res));
   if (res.status === 404) throw new Error(`${client.name}: addtorrent.php not found — check the ruTorrent URL`);
   if (!res.ok) throw new Error(`${client.name}: HTTP ${res.status}`);
 
@@ -131,7 +159,7 @@ async function addToRutorrent(client, dest, payload) {
 
 async function testClient(client) {
   const res = await authFetch(client, baseUrl(client) + 'php/getsettings.php');
-  if (res.status === 401 || res.status === 403) return { ok: false, error: `Login rejected (HTTP ${res.status})` };
+  if (res.status === 401 || res.status === 403) return { ok: false, error: loginError(client, res) };
   if (res.status === 404) {
     const root = await authFetch(client, baseUrl(client));
     const t = root.ok ? await root.text() : '';
