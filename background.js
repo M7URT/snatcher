@@ -231,7 +231,12 @@ async function addToRutorrent(client, dest, payload) {
     else if (/addTorrentSuccess|Success/.test(text)) result = 'Success';
     else if (/addTorrentFailed|Failed/.test(text)) result = 'Failed';
   }
+  connLog({ step: 'ruTorrent answer', client: client.name, folder: dir || '(default)', label: label || '(none)',
+    sent: payload.b64 ? 'torrent file' : 'link', result: result || (text.replace(/\s+/g, ' ').slice(0, 120) || '(empty)') });
   if (/^success$/i.test(result)) return true;
+  if (/^FailedDirectory$/i.test(result)) {
+    throw new Error(`${client.name}: ruTorrent refused the folder "${dir}" — it doesn't exist there or is outside the folders ruTorrent may use. Run "Check folders on server" in SNATCHER settings.`);
+  }
   if (result) throw new Error(`${client.name}: ruTorrent said "${result}"`);
   if (/<form[^>]+(login|password)/i.test(text)) throw new Error(`${client.name}: got a login page — check credentials`);
   // Some setups return an empty 200 on success.
