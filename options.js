@@ -383,6 +383,21 @@ $('reset').onclick = () => {
   save(); renderAll();
 };
 
+// ---------- connection log ----------
+
+async function logText() {
+  const { connLog = [] } = await chrome.storage.local.get('connLog');
+  if (!connLog.length) return '(empty: send something or click Test connection, then look again)';
+  return connLog.map(e => Object.entries(e).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}: ${v}`).join(' | ')).join('\n');
+}
+$('showLog').onclick = async () => { $('connLog').hidden = false; $('connLog').textContent = await logText(); };
+$('copyLog').onclick = async () => {
+  const t = await logText();
+  try { await navigator.clipboard.writeText(t); $('copyLog').textContent = 'Copied ✓'; } catch (e) { $('connLog').hidden = false; $('connLog').textContent = t; }
+  setTimeout(() => { $('copyLog').textContent = 'Copy log'; }, 1500);
+};
+$('clearLog').onclick = async () => { await chrome.storage.local.set({ connLog: [] }); $('connLog').textContent = '(cleared)'; };
+
 function renderAll() { renderClients(); renderDests(); renderRules(); renderBehaviour(); runTest(); }
 
 SN.getSettings().then(x => { s = x; renderAll(); });

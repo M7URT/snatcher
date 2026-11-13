@@ -72,6 +72,10 @@
     <button id="export">Export settings</button>
     <label class="button">Import settings<input type="file" id="import" accept=".json,application/json" hidden></label>
     <button id="reset" class="danger">Reset rules &amp; destinations to starter set</button>
+    <h2 style="margin-top:18px">Connection log</h2>
+    <p class="help">Every login step SNATCHER made with your servers, newest last. It never contains your password. If sending fails, copy this and send it over.</p>
+    <button id="showLog">Show log</button> <button id="copyLog">Copy log</button> <button id="clearLog">Clear log</button>
+    <pre id="connLog" class="log" hidden></pre>
   </section>
 </main>
 <script src="lib/common.js"></script>

@@ -48,25 +48,83 @@ function digestHeader(client, method, url, ch, nc) {
   return h;
 }
 
-// fetch() to ruTorrent with the right login. Tries a cached Digest nonce first; on a 401 it reads
-// the server's challenge (Digest or Basic) and retries once.
-//
-// With a username set, SNATCHER does the whole login itself and tells the browser to keep out
-// (credentials: 'omit'). Otherwise Brave tries to answer the server's 401 challenge on its own: with
-// a ruTorrent tab logged in it quietly uses that saved login, and without one the request stalls,
-// so sends only worked while ruTorrent was open. Without a username we fall back to the browser's
-// own session (cookies / saved login) for setups that use a login page instead.
+// ---------- connection log (Settings → Backup → Connection log) ----------
+// Each login step: method, path, how it logged in, the server's answer. Never the password, and
+// never the one-time Digest response hash.
+
+let connLogBuf = null;
+async function connLog(entry) {
+  if (!connLogBuf) connLogBuf = (await chrome.storage.local.get('connLog')).connLog || [];
+  connLogBuf.push({ at: new Date().toISOString().slice(11, 19), ...entry });
+  if (connLogBuf.length > 40) connLogBuf.splice(0, connLogBuf.length - 40);
+  chrome.storage.local.set({ connLog: connLogBuf });
+}
+
+function describeAuth(h) {
+  if (!h) return 'no login';
+  if (/^Basic/i.test(h)) return 'Basic (user:password)';
+  return h.replace(/response="[^"]*"/, 'response="…"').replace(/cnonce="[^"]*"/, 'cnonce="…"');
+}
+
+// ---------- letting Brave do the login ----------
+// Chromium has its own, battle-tested Digest/Basic login. When ruTorrent answers 401, Brave asks
+// extensions for credentials (webRequest.onAuthRequired) and we hand over the ones stored in
+// SNATCHER for that server. Brave then logs in and re-sends the upload itself, with no logged-in
+// tab needed. It also logs you in automatically when you open ruTorrent in a tab.
+
+const authTries = new Map(); // requestId -> attempts, so a wrong password can't loop forever
+
+chrome.webRequest.onAuthRequired.addListener((details, callback) => {
+  if (details.isProxy) { callback({}); return; }
+  SN.getSettings().then(settings => {
+    const client = settings.clients.find(c => c.username && sameOrigin(details.url, baseUrl(c)));
+    if (!client) { callback({}); return; }
+    const n = (authTries.get(details.requestId) || 0) + 1;
+    authTries.set(details.requestId, n);
+    setTimeout(() => authTries.delete(details.requestId), 60000);
+    connLog({ step: 'Brave asked for login', client: client.name, path: pathOf(details.url), scheme: details.scheme, realm: details.realm, attempt: n });
+    if (n > 1) {
+      // Our credentials were already refused for this request: stop (extension requests) or let the
+      // normal login box appear (your own tabs).
+      callback(details.tabId === -1 ? { cancel: true } : {});
+      return;
+    }
+    callback({ authCredentials: { username: client.username, password: client.password || '' } });
+  }).catch(() => callback({}));
+}, { urls: ['http://*/*', 'https://*/*'] }, ['asyncBlocking']);
+
+function sameOrigin(a, b) {
+  try { return new URL(a).origin === new URL(b).origin; } catch (e) { return false; }
+}
+function pathOf(u) {
+  try { const x = new URL(u); return x.pathname + x.search; } catch (e) { return u; }
+}
+
+// fetch() to ruTorrent with the right login.
+//  1. Brave's own login (credentials: 'include'), fed by onAuthRequired above.
+//  2. Fallback: SNATCHER's own Digest/Basic (credentials: 'omit'), for browsers where (1) is
+//     unavailable. Uploads get a fresh challenge with a body-less GET first, because an upload
+//     refused with 401 leaves unread bytes on the connection and the next request gets HTTP 400.
+// Without a username, the browser's own session (cookies / saved login) is used as-is.
 async function authFetch(client, url, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
-  const credentials = client.username ? 'omit' : 'include';
-  const go = async (auth, probe = false) => {
+  const go = async (auth, { probe = false, browser = false, timeout = 30000 } = {}) => {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30000);
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    const m = probe ? 'GET' : method;
+    const how = browser ? 'Brave login' : 'SNATCHER login';
     try {
-      return await fetch(url, { ...opts, method: probe ? 'GET' : method, body: probe ? undefined : opts.body,
-        credentials, signal: ctrl.signal, headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
+      const res = await fetch(url, { ...opts, method: m, body: probe ? undefined : opts.body,
+        credentials: browser || !client.username ? 'include' : 'omit', signal: ctrl.signal,
+        headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
+      connLog({ step: how, client: client.name, method: m, path: pathOf(url),
+        sent: browser ? '(Brave handles it)' : describeAuth(auth), status: res.status,
+        challenge: res.status === 401 ? (res.headers.get('WWW-Authenticate') || '(none)') : undefined });
+      return res;
     } catch (e) {
-      if (e.name === 'AbortError') throw new Error(`${client.name}: no answer from the server within 30 seconds`);
+      connLog({ step: how, client: client.name, method: m, path: pathOf(url),
+        error: e.name === 'AbortError' ? `no answer in ${timeout / 1000}s` : String(e.message || e) });
+      if (e.name === 'AbortError') throw new Error(`${client.name}: no answer from the server within ${timeout / 1000} seconds`);
       throw new Error(`${client.name}: couldn't reach the server (${e.message})`);
     } finally {
       clearTimeout(timer);
@@ -74,7 +132,12 @@ async function authFetch(client, url, opts = {}) {
   };
   if (!client.username) return go(null);
 
-  // Login type and Digest challenge are remembered per server (as long as the service worker lives).
+  // 1. Let Brave log in.
+  let first = null;
+  try { first = await go(null, { browser: true, timeout: 20000 }); } catch (e) { /* fall back below */ }
+  if (first && first.status !== 401 && first.status !== 400) return first;
+
+  // 2. Fallback: SNATCHER's own login.
   const learn = www => {
     if (/^\s*Digest/i.test(www)) digestCache[client.id] = { scheme: 'digest', challenge: parseChallenge(www.replace(/^\s*Digest\s+/i, '')), nc: 0, at: Date.now() };
     else if (/^\s*Basic/i.test(www) || !www) digestCache[client.id] = { scheme: 'basic', at: Date.now() };
@@ -84,25 +147,19 @@ async function authFetch(client, url, opts = {}) {
     if (!c) return null;
     return c.scheme === 'basic' ? basicHeader(client) : digestHeader(client, method, url, c.challenge, ++c.nc);
   };
-
-  // Uploads must never be refused with a 401: the server answers before reading the upload, the
-  // unread bytes stay on the connection, and the next request then gets HTTP 400. So for uploads
-  // SNATCHER first gets a fresh login challenge with a small body-less GET (Apache's Digest
-  // challenges expire after ~5 minutes; anything older than 4 is refreshed).
   const upload = method !== 'GET';
   const probe = async () => {
     for (let i = 0; i < 2; i++) { // a first 400 here just clears junk left on the connection
-      const p = await go(null, true);
+      const p = await go(null, { probe: true });
       if (p.status === 401) { learn(p.headers.get('WWW-Authenticate') || ''); return; }
       if (p.status !== 400) return;
     }
   };
   const fresh = c => c && (c.scheme === 'basic' || Date.now() - c.at < 240000);
-  if (upload && !fresh(digestCache[client.id])) await probe();
+  if (!fresh(digestCache[client.id])) await probe();
 
   let res = await go(loginHeader());
   if (res.status === 401) {
-    // No challenge yet (plain GET) or the Digest nonce went stale: take the new challenge, retry once.
     const www = res.headers.get('WWW-Authenticate') || '';
     if (upload) await probe(); else learn(www);
     res = await go(loginHeader());
