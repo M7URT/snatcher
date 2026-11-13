@@ -275,7 +275,7 @@ const ART_RULES = [
   ['AUDIOBOOKS', 'audio ?books?|\\bm4b\\b'],
   ['BOOKS', 'e-?books?|\\bbooks?\\b|\\bepub\\b|\\bmobi\\b|magazines?|comics?'],
   ['GAMES_NINTENDO', 'nintendo|\\bswitch\\b|\\bnsp\\b|\\bxci\\b|\\bwii\\b|\\b3ds\\b'],
-  ['GAMES_EMULATORS', 'emulat|\\broms?\\b|retro|\\bmame\\b|\\bpsx\\b|\\bps[12]\\b|\\bsega\\b'],
+  ['GAMES_EMULATORS', 'emulat|\\broms?\\b|retro|\\bmame\\b|\\bpsx\\b|\\bps[1-5]\\b|playstation|\\bsega\\b|xbox|\\bx360\\b|\\bxbla\\b'],
   ['GAMES_PC', '\\bgames?\\b|\\bgog\\b|fitgirl|\\bdodi\\b|codex|skidrow|\\bdlc\\b'],
   ['APPZ', '\\bapps?\\b|appz|software|applications?|programs?|0day|windows|macos|\\bx64\\b'],
   ['MOVIES OLDIES', 'oldies|classics?'],
