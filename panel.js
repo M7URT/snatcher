@@ -11,6 +11,7 @@
   let built = false, isOpen = false, collapsed = false, sending = false;
   let root, panel, tab, listEl;
   let settings = null, info = null, items = [];
+  let have = { have: {}, sent: {} }; // what's already on the seedbox / sent before
   let observer = null, rescanTimer = null;
   const marks = new Map(); // key -> { row, outline, offset }
 
@@ -51,6 +52,9 @@
     .sp-title { overflow-wrap: break-word; line-height: 1.35; }
     .sp-seeds { color: #9a9ca5; font-size: 11px; margin-top: 2px; }
     .sp-seeds.zero { color: #e0574f; }
+    .sp-have { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; font-size: 10px; font-weight: 600;
+               background: #1f3a2b; color: #6fd39b; }
+    .sp-item.got .sp-title { color: #9a9ca5; }
     .sp-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
     .sp-grip:hover, .sp-grip.drag { background: rgba(224,87,58,.5); }
     .sp-item select { width: 100%; }
@@ -113,12 +117,12 @@
     q('.sp-rescan').onclick = rescan;
     q('.sp-filter').oninput = render;
     q('.sp-all').onchange = e => {
-      visible().forEach(i => setChecked(i, e.target.checked));
+      visible().filter(i => !e.target.checked || !haveLabel(i)).forEach(i => setChecked(i, e.target.checked));
       render();
     };
     q('.sp-setall').onchange = e => {
       if (!e.target.value) return;
-      items.filter(i => i.checked).forEach(i => { i.destinationId = e.target.value; });
+      items.filter(i => i.checked).forEach(i => { i.destinationId = e.target.value; i.manual = true; });
       e.target.value = '';
       render();
     };
@@ -159,7 +163,19 @@
     fillSetAll();
     rescan();
     setCollapsed(!!startCollapsed);
+    refreshHave();
     startObserver();
+    document.addEventListener('pointerdown', onOutside, true);
+  }
+
+  // Clicking anywhere on the page outside the panel closes it (ticks are kept for next time).
+  // Clicks on the page's own scrollbar don't count, so you can still drag-scroll.
+  function onOutside(e) {
+    if (!isOpen || collapsed) return;
+    if (e.composedPath().includes(root.host)) return;
+    const html = document.documentElement;
+    if (e.clientX >= html.clientWidth || e.clientY >= html.clientHeight) return;
+    closePanel();
   }
 
   function closePanel() {
@@ -168,6 +184,7 @@
     remember(null);
     stopObserver();
     clearMarks();
+    document.removeEventListener('pointerdown', onOutside, true);
   }
 
   function setCollapsed(value) {
@@ -185,6 +202,20 @@
     else closePanel();
   }
 
+  // ---------- already have it? ----------
+
+  async function refreshHave() {
+    try { have = (await chrome.runtime.sendMessage({ type: 'seedboxState' })) || have; } catch (e) { /* extension reloaded */ }
+    if (isOpen) render();
+  }
+
+  function haveLabel(it) {
+    if (it.status === 'done') return '';
+    if (have.sent && have.sent[it.key]) return 'Sent before';
+    const on = have.have && have.have[SN.normName(it.name)];
+    return on ? `On ${on}` : '';
+  }
+
   // ---------- data ----------
 
   function rescan() {
@@ -192,10 +223,11 @@
     const old = new Map(items.map(i => [i.key, i]));
     const next = info.items.map(it => {
       const prev = old.get(it.key);
-      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders }); }
-      const p = SN.pickDestination(settings, info.host, it.rowContext, info.pageContext);
-      const why = p.via === 'row' ? 'from row: ' : p.via === 'page' ? 'from page section · ' : 'default · ';
-      return { ...it, destinationId: p.destinationId, autoId: p.destinationId, via: p.via,
+      if (prev) { old.delete(it.key); return Object.assign(prev, { name: it.name, rowContext: it.rowContext, seeders: it.seeders, catKey: it.catKey }); }
+      const p = SN.pickDestination(settings, info.host, it.rowContext, info.pageContext, it.catKey);
+      const byRules = p.via === 'learned' ? SN.pickDestination({ ...settings, learned: {} }, info.host, it.rowContext, info.pageContext).destinationId : p.destinationId;
+      const why = p.via === 'learned' ? 'your usual folder for this category · ' : p.via === 'row' ? 'from row: ' : p.via === 'page' ? 'from page section · ' : 'default · ';
+      return { ...it, destinationId: p.destinationId, autoId: p.destinationId, ruleAuto: byRules, via: p.via,
         why: why + it.rowContext.split(' | ').slice(0, 3).join(' · '), checked: false, status: '', error: '' };
     });
     // Anything queued or mid-send stays listed even if the page dropped its row.
@@ -240,7 +272,17 @@
 
 Read from this row: ${item.rowContext}`;
     sel.disabled = item.status === 'queued' || item.status === 'sending';
-    sel.onchange = () => { item.destinationId = sel.value; setChecked(item, true); render(); };
+    sel.onchange = () => {
+      item.destinationId = sel.value;
+      item.manual = true;
+      setChecked(item, true);
+      // Remember it for this tracker category, and move the other untouched torrents of that category too.
+      if (item.catKey) {
+        SN.learnDestination(info.host, item.catKey, sel.value, item.ruleAuto);
+        items.forEach(o => { if (o !== item && o.catKey === item.catKey && !o.manual && !o.status) o.destinationId = sel.value; });
+      }
+      render();
+    };
     return sel;
   }
 
@@ -282,8 +324,19 @@ Read from this row: ${item.rowContext}`;
       });
       title.title = 'Click to show it on the page';
       const seeds = row.querySelector('.sp-seeds');
-      if (it.seeders === null || it.seeders === undefined) seeds.remove();
-      else { seeds.textContent = `${it.seeders} seeder${it.seeders === 1 ? '' : 's'}`; seeds.classList.toggle('zero', it.seeders === 0); }
+      if (it.seeders !== null && it.seeders !== undefined) {
+        seeds.textContent = `${it.seeders} seeder${it.seeders === 1 ? '' : 's'}`;
+        seeds.classList.toggle('zero', it.seeders === 0);
+      }
+      const got = haveLabel(it);
+      if (got) {
+        const tag = document.createElement('span');
+        tag.className = 'sp-have';
+        tag.textContent = got;
+        seeds.appendChild(tag);
+        row.classList.add('got');
+      }
+      if (!seeds.childNodes.length) seeds.remove();
       row.querySelector('.sp-name').onclick = () => reveal(it);
       row.querySelector('.sel').replaceWith(destSelect(it));
 
@@ -300,7 +353,8 @@ Read from this row: ${item.rowContext}`;
   function updateFooter() {
     const ticked = items.filter(i => i.checked && i.status !== 'done' && !dead(i));
     const vis = visible();
-    panel.querySelector('.sp-all').checked = vis.length > 0 && vis.every(i => i.checked);
+    const want = vis.filter(i => !haveLabel(i));
+    panel.querySelector('.sp-all').checked = want.length > 0 && want.every(i => i.checked);
     const btn = panel.querySelector('.sp-send');
     if (sending) {
       const total = items.filter(i => ['queued', 'sending', 'done', 'error'].includes(i.status) && i.batch).length;
@@ -376,6 +430,7 @@ Read from this row: ${item.rowContext}`;
     }
     sending = false;
     render();
+    refreshHave();
     const ok = (res.results || []).filter(r => r.ok).length;
     const total = (res.results || []).length;
     API().toast(ok === total ? `Snatched ${ok} of ${total}` : `Snatched ${ok} of ${total} — hover ✕ in the panel for why`, ok === total);

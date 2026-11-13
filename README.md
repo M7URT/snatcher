@@ -49,6 +49,8 @@ Click **Test connection**. ✓ means you're good.
 - **Directory**: the path on that box, e.g. `/home/you/torrents/movies`. Copy it from ruTorrent's *Add torrent → Base directory* field.
 - **Label**: the ruTorrent label.
 
+**Check folders on server** (under the folders table) asks each server whether every folder exists and fills in the *On server* column, e.g. ✕ "not found — did you mean "Movies Foreign"?". It needs ruTorrent's folder browser plugin (`_getdir`), and the **On DEDI** tags need the `httprpc` plugin. Both are standard.
+
 **3. Rules.** These map what's on the page to a destination. Starter rules for TV, Foreign, Movies and Apps are already there. Each rule is a case-insensitive regex:
 - `foreign|non-english` → Foreign Movies
 - `\bS\d{1,2}E\d{1,3}\b|tv|episodes?|series` → TV Shows
@@ -67,6 +69,9 @@ Use the tester box under the rules to try out text, and hover the grey line unde
   - Failures show ✕ (hover for why) and stay ticked, so one more click retries them.
   - Full release names wrap onto several lines, and you can drag the panel's left edge to widen it. Hover a folder dropdown to see why it was picked.
   - **Hide 0 seeds** (on by default) hides torrents whose seeder count is 0. The count is read from a Seeders/Seeds/S column or a seeder element in the row. Rows where no count can be found are always shown.
+  - Click anywhere on the page outside the panel to close it. Your ticks are kept for when you reopen it.
+  - Torrents you already have are tagged **On DEDI** (a torrent with the same name is on the seedbox) or **Sent before** (from SNATCHER's own history), and **All** skips them.
+  - Change a torrent's folder and SNATCHER **remembers it for that tracker category**: other torrents of that category on the page follow straight away, and it's picked automatically next time. Settings → **Forget remembered folders** clears these.
   - It re-scans when the page loads more results. If you leave it open it comes back on the next page in that tab; **⇥** tucks it into a small tab on the edge.
   - Settings → Behaviour can switch the toolbar icon back to the small popup. The shortcut can be changed at `brave://extensions/shortcuts`.
 - **Toolbar popup**: lists every torrent on the page with its auto-picked folder. Tick the ones you want (or All), change any folder, then click **Snatch N**. Each row shows ✓/✕ when done (hover ✕ for the error).

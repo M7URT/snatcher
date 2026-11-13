@@ -34,3 +34,5 @@ label.check { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 label.field { display: block; margin-top: 12px; color: var(--dim); font-size: 13px; }
 label.field input { margin-top: 4px; }
 input.bad { border-color: var(--bad); }
+td.fstat { font-size: 12px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+td.fstat.ok { color: var(--ok); } td.fstat.bad { color: var(--bad); }

@@ -2,12 +2,15 @@
 const $ = id => document.getElementById(id);
 let s;
 let saveTimer;
+let folderStatus = {}; // destId -> { ok, path, note } from "Check folders on server"
 
 function save(keys) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     const out = {};
-    (keys || Object.keys(SN.DEFAULTS)).forEach(k => { out[k] = s[k]; });
+    // Settings the side panel writes itself are left alone, so an open settings tab can't undo them.
+    const PANEL_OWNED = ['learned', 'panelWidth', 'hideNoSeeders'];
+    (keys || Object.keys(SN.DEFAULTS).filter(k => !PANEL_OWNED.includes(k))).forEach(k => { out[k] = s[k]; });
     await SN.saveSettings(out);
     $('saved').textContent = 'Saved';
     setTimeout(() => { $('saved').textContent = ''; }, 1200);
@@ -154,10 +157,34 @@ function renderDests() {
       el('td', {}, [input(d, 'directory', { placeholder: '(ruTorrent default)' })]),
       el('td', {}, [input(d, 'label')]),
       el('td', { className: 'c' }, [check(d, 'notAddPath')]),
+      (() => {
+        const st = folderStatus[d.id];
+        return el('td', { className: 'fstat' + (st ? (st.ok ? ' ok' : ' bad') : ''), title: st ? (st.path || '') + (st.note ? ' — ' + st.note : '') : 'Not checked yet',
+          textContent: st ? (st.ok ? '✓ ' + (st.note || 'exists') : '✕ ' + (st.note || 'missing')) : '' });
+      })(),
       el('td', { className: 'nowrap' }, [...moveButtons(s.destinations, idx, renderAll), del])
     ]));
   });
 }
+
+$('checkFolders').onclick = async () => {
+  $('checkResult').textContent = 'Checking…';
+  const r = await chrome.runtime.sendMessage({ type: 'checkFolders' });
+  if (!r || r.error) { $('checkResult').textContent = 'Check failed: ' + ((r && r.error) || 'no answer'); return; }
+  folderStatus = r;
+  const bad = Object.values(r).filter(x => !x.ok).length;
+  $('checkResult').textContent = bad ? `${bad} folder(s) need attention — see the On server column` : 'All folders found ✓';
+  renderDests();
+};
+
+$('forgetLearned').onclick = async () => {
+  const { learned = {} } = await chrome.storage.local.get('learned');
+  const n = Object.values(learned).reduce((a, m) => a + Object.keys(m).length, 0);
+  if (!n) { alert("Nothing remembered yet. Change a torrent's folder in the panel and SNATCHER remembers it for that tracker category."); return; }
+  if (!confirm(`Forget ${n} remembered folder choice(s)? Auto-detect rules will be used again.`)) return;
+  s.learned = {};
+  await chrome.storage.local.set({ learned: {} });
+};
 
 $('addDest').onclick = () => {
   s.destinations.push({ id: SN.uid(), name: 'New folder', clientId: '', directory: '', label: '', notAddPath: false });

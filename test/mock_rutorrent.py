@@ -25,6 +25,9 @@ BASE = "/rutorrent"
 MODE = "basic" if "--basic" in sys.argv else "digest"
 REALM = "ruTorrent"
 NONCES = set()
+# Folders the mock pretends exist (for "Check folders on server"), and names of torrents added.
+FOLDERS = {"/home/test": ["downloads"], "/home/test/downloads": ["TEST_DOWNLOADS"]}
+ADDED = []
 
 
 def md5(s):
@@ -87,12 +90,22 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == BASE + "/php/getsettings.php":
             return self._send(200, b'{"webui.lang":"en"}')
+        if path == BASE + "/plugins/_getdir/listdir.php":
+            want = parse_qs(urlparse(self.path).query).get("dir", ["/"])[0].rstrip("/") or "/"
+            dirs = FOLDERS.get(want, [])
+            return self._send(200, json.dumps({"path": want + "/", "directories": dirs, "files": []}).encode())
         if path in (BASE, BASE + "/"):
             return self._send(200, b"<html><title>ruTorrent (mock)</title></html>", "text/html")
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == BASE + "/plugins/httprpc/action.php":
+            if not self._authed():
+                return
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            t = {f"HASH{i:036d}": [1, 0, 1, 1, n, 0] for i, n in enumerate(ADDED)}
+            return self._send(200, json.dumps({"t": t, "cid": 1, "full": 1}).encode())
         if path != BASE + "/php/addtorrent.php":
             return self._send(404, b"not found", "text/plain")
         if not self._authed():
@@ -119,6 +132,9 @@ class Handler(BaseHTTPRequestHandler):
         print(f"  label:             {fields.get('label', '(none)')}")
         print(f"  paused:            {'yes' if fields.get('torrents_start_stopped') else 'no'}")
         print(f"  no subfolder:      {'yes' if fields.get('not_add_path') else 'no'}")
+        if ok:
+            ADDED.append(os.path.splitext(file_name)[0] if file_bytes else
+                         (parse_qs(urlparse(fields.get("url", "")).query).get("dn", [fields.get("url", "")])[0]))
         if file_bytes:
             os.makedirs(OUT, exist_ok=True)
             safe = "".join(ch if ch.isalnum() or ch in "._- " else "_" for ch in file_name)[:150]

@@ -25,10 +25,13 @@
     <p class="help">Where things land. Directory is the path <em>on the client</em> (e.g. <code>/home/user/downloads/movies</code>); leave blank for ruTorrent's default.
       Label is the ruTorrent label. The ● picks the fallback used when no rule matches.</p>
     <table id="dests" class="grid">
-      <thead><tr><th>Default</th><th>Name</th><th>Client</th><th>Directory on client</th><th>Label</th><th title="Don't create a sub-folder named after the torrent">No subfolder</th><th></th></tr></thead>
+      <thead><tr><th>Default</th><th>Name</th><th>Client</th><th>Directory on client</th><th>Label</th><th title="Don't create a sub-folder named after the torrent">No subfolder</th><th>On server</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <button id="addDest">+ Add destination</button>
+    <button id="checkFolders" title="Asks each server whether every folder above exists">Check folders on server</button>
+    <span id="checkResult" class="help"></span>
+    <button id="forgetLearned" title="Folders you picked by hand are remembered per tracker category">Forget remembered folders</button>
   </section>
 
   <section>

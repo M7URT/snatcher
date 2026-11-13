@@ -144,6 +144,101 @@ async function testClient(client) {
   return { ok: true, info: 'Connected to ruTorrent' };
 }
 
+// ---------- folders on the server (ruTorrent _getdir plugin) ----------
+
+// Lists sub-folders of `dir`. Newer ruTorrent answers JSON {path, directories}; older builds an HTML table.
+async function listDir(client, dir) {
+  const url = baseUrl(client) + 'plugins/_getdir/listdir.php?dir=' + encodeURIComponent(dir) + '&time=' + Date.now();
+  const res = await authFetch(client, url);
+  if (res.status === 404) throw new Error('ruTorrent folder browser (_getdir plugin) not available');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  try {
+    const j = JSON.parse(text);
+    return { path: String(j.path || ''), dirs: (j.directories || []).filter(d => d !== '..' && d !== '.') };
+  } catch (e) { /* older HTML answer */ }
+  const dirs = [];
+  const re = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const name = m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').trim().replace(/\/$/, '');
+    if (name && name !== '..' && name !== '.') dirs.push(name);
+  }
+  return { path: dir, dirs };
+}
+
+// For every destination: does its folder exist on its server?  -> { destId: { ok, path, note } }
+async function checkFolders() {
+  const settings = await SN.getSettings();
+  const out = {};
+  const listings = new Map(); // "clientId|parent" -> Promise<{path, dirs}>
+  for (const d of settings.destinations) {
+    const client = SN.clientForDestination(settings, d);
+    if (!client) { out[d.id] = { ok: false, note: 'no server' }; continue; }
+    let full;
+    try { full = fullDirectory(client, d.directory); } catch (e) { out[d.id] = { ok: false, note: 'set the Base folder' }; continue; }
+    if (!full) { out[d.id] = { ok: true, path: '(ruTorrent default)', note: 'default folder' }; continue; }
+    const clean = full.replace(/\/+$/, '');
+    const parent = clean.slice(0, clean.lastIndexOf('/')) || '/';
+    const name = clean.slice(clean.lastIndexOf('/') + 1);
+    const key = client.id + '|' + parent;
+    if (!listings.has(key)) listings.set(key, listDir(client, parent));
+    try {
+      const listing = await listings.get(key);
+      if (listing.path && listing.path.replace(/\/+$/, '') !== parent.replace(/\/+$/, '')) {
+        out[d.id] = { ok: false, path: clean, note: `ruTorrent won't list ${parent}` };
+      } else {
+        const exact = listing.dirs.includes(name);
+        const nearly = !exact && listing.dirs.find(x => x.toLowerCase() === name.toLowerCase());
+        out[d.id] = exact ? { ok: true, path: clean }
+          : { ok: false, path: clean, note: nearly ? `not found — did you mean "${nearly}"?` : 'not found on server' };
+      }
+    } catch (e) {
+      out[d.id] = { ok: false, path: clean, note: String(e.message || e) };
+    }
+  }
+  return out;
+}
+
+// ---------- what's already on the seedbox / already sent ----------
+
+const listCache = {}; // client.id -> { at, names: [] }
+
+// Names of every torrent on a client, via ruTorrent's httprpc plugin (cached for a minute).
+async function torrentNames(client) {
+  const hit = listCache[client.id];
+  if (hit && Date.now() - hit.at < 60000) return hit.names;
+  const res = await authFetch(client, baseUrl(client) + 'plugins/httprpc/action.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'mode=list'
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = await res.json();
+  // Each torrent is [is_open, is_hash_checking, is_hash_checked, state, name, ...] keyed by hash.
+  const names = Object.values(j.t || {}).map(v => Array.isArray(v) ? String(v[4] || '') : '').filter(Boolean);
+  listCache[client.id] = { at: Date.now(), names };
+  return names;
+}
+
+async function seedboxState() {
+  const settings = await SN.getSettings();
+  const have = {}; // normalised name -> client name
+  await Promise.all(settings.clients.filter(c => !c.isTest).map(async c => {
+    try { (await torrentNames(c)).forEach(n => { have[SN.normName(n)] = c.name; }); } catch (e) { /* httprpc missing: history only */ }
+  }));
+  const { sentHistory = {} } = await chrome.storage.local.get('sentHistory');
+  return { have, sent: sentHistory };
+}
+
+async function recordSent(item, destination) {
+  const { sentHistory = {} } = await chrome.storage.local.get('sentHistory');
+  sentHistory[item.key] = { name: item.name, at: Date.now(), to: destination };
+  const keys = Object.keys(sentHistory);
+  if (keys.length > 3000) keys.sort((a, b) => sentHistory[a].at - sentHistory[b].at).slice(0, keys.length - 3000).forEach(k => delete sentHistory[k]);
+  await chrome.storage.local.set({ sentHistory });
+}
+
 // ---------- getting the .torrent bytes ----------
 
 async function getTorrentPayload(item, tabId, preferTorrent) {
@@ -191,6 +286,8 @@ async function sendItems(items, tabId, notify = true) {
         : await getTorrentPayload(item, tabId, settings.preferTorrent);
       await addToRutorrent(client, dest, payload);
       r.ok = true;
+      await recordSent(item, r.destination);
+      delete listCache[client.id];
     } catch (e) {
       r.ok = false;
       r.error = String(e.message || e);
@@ -239,6 +336,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'togglePanel' && msg.tabId != null) {
     togglePanel(msg.tabId);
+  }
+  if (msg.type === 'checkFolders') {
+    checkFolders().then(sendResponse).catch(e => sendResponse({ error: String(e.message || e) }));
+    return true;
+  }
+  if (msg.type === 'seedboxState') {
+    seedboxState().then(sendResponse).catch(() => sendResponse({ have: {}, sent: {} }));
+    return true;
   }
   if (msg.type === 'testClient') {
     testClient(msg.client).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
