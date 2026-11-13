@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SNATCHER settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+<main>
+  <h1><span>SNATCHER</span> settings <small id="saved"></small></h1>
+
+  <section>
+    <h2>1 · Download clients</h2>
+    <p class="help">Each ruTorrent you send to — seedbox or local. The URL is the address you open ruTorrent at in the browser,
+      e.g. <code>https://box.example.com:12345</code> plus relative path <code>/rutorrent</code>. Easiest: in Add Remote Torrent export its settings,
+      then use <b>Import from Add Remote Torrent</b> below. That brings over your server, password and every download folder.</p>
+    <div id="clients"></div>
+    <button id="addClient">+ Add client</button>
+    <label class="button primary">Import from Add Remote Torrent…<input type="file" id="importArt" accept=".json,application/json" hidden></label>
+    <button id="addTest" title="Adds a client pointing at test/mock_rutorrent.py running on this PC">+ Add test server</button>
+  </section>
+
+  <section>
+    <h2>2 · Destinations (folders)</h2>
+    <p class="help">Where things land. Directory is the path <em>on the client</em> (e.g. <code>/home/user/downloads/movies</code>); leave blank for ruTorrent's default.
+      Label is the ruTorrent label. The ● picks the fallback used when no rule matches.</p>
+    <table id="dests" class="grid">
+      <thead><tr><th>Default</th><th>Name</th><th>Client</th><th>Directory on client</th><th>Label</th><th title="Don't create a sub-folder named after the torrent">No subfolder</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button id="addDest">+ Add destination</button>
+  </section>
+
+  <section>
+    <h2>3 · Rules (auto-detect the section)</h2>
+    <p class="help">Checked top to bottom, first match wins. <b>Match</b> is a case-insensitive regex, e.g. <code>movies|films</code>.
+      <b>Row</b> rules look at the torrent's own row (category icon, category link, title); <b>Page</b> rules look at the page title, URL, headings and the highlighted menu item.
+      Row matches always beat page matches. <b>Site</b> limits a rule to a tracker, e.g. <code>*.mytracker.org</code>, or <code>*</code> for all.</p>
+    <table id="rules" class="grid">
+      <thead><tr><th>Site</th><th>Looks at</th><th>Match (regex)</th><th>Send to</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button id="addRule">+ Add rule</button>
+    <div class="tester">
+      <input id="testText" placeholder="Try it: paste a category name, page title or torrent name…">
+      <span id="testResult"></span>
+    </div>
+    <p class="help">Tip: open the popup on a tracker page and hover the grey line under a torrent to see exactly what text SNATCHER read from that row.</p>
+  </section>
+
+  <section>
+    <h2>4 · Behaviour</h2>
+    <label class="check"><input type="checkbox" data-opt="interceptClicks"> Clicking a torrent/magnet link sends it to SNATCHER (Alt/Ctrl/Shift-click downloads normally)</label>
+    <label class="check"><input type="checkbox" data-opt="confirmOnClick"> Show a folder picker on click (untick to send straight to the auto-detected folder)</label>
+    <label class="check"><input type="checkbox" data-opt="preferTorrent"> When a row has both a .torrent and a magnet, use the .torrent</label>
+    <label class="check"><input type="checkbox" data-opt="notifications"> Desktop notification after sending from the popup</label>
+    <label class="field">Extra download-link pattern (regex, optional — for trackers whose download links aren't detected)
+      <input data-opt="extraLinkPattern" placeholder="e.g. /grab/\d+|getfile\.php"></label>
+  </section>
+
+  <section>
+    <h2>5 · Backup</h2>
+    <p class="help">Export includes your client passwords in plain text — keep the file somewhere safe.</p>
+    <button id="export">Export settings</button>
+    <label class="button">Import settings<input type="file" id="import" accept=".json,application/json" hidden></label>
+    <button id="reset" class="danger">Reset rules &amp; destinations to starter set</button>
+  </section>
+</main>
+<script src="lib/common.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

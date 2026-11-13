@@ -1,0 +1,11 @@
+# Settings exports contain plain-text passwords — never commit them
+add remote torrent settings/
+*settings*.json
+!manifest.json
+
+# Test server output
+test/received/
+__pycache__/
+
+# Local tool config
+.claude/

@@ -1,0 +1,278 @@
+// SNATCHER background worker: uploads torrents to ruTorrent and owns the right-click menu.
+importScripts('lib/common.js', 'lib/md5.js');
+
+// ---------- ruTorrent ----------
+
+function baseUrl(client) {
+  let u = (client.url || '').trim();
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  u = u.replace(/\/+$/, '');
+  // Optional "relative path" (Add Remote Torrent calls it ruTorrent Relative Path), e.g. /rutorrent
+  const path = (client.path || '').trim().replace(/^\/+|\/+$/g, '');
+  if (path && !u.toLowerCase().endsWith('/' + path.toLowerCase())) u += '/' + path;
+  return u + '/';
+}
+
+// ---------- auth: Basic or Digest, whichever the server asks for ----------
+
+const digestCache = {}; // client.id -> { scheme: 'basic' } | { scheme: 'digest', challenge, nc }
+
+function basicHeader(client) {
+  return 'Basic ' + btoa(unescape(encodeURIComponent(`${client.username}:${client.password || ''}`)));
+}
+
+function parseChallenge(header) {
+  const out = {};
+  const re = /(\w+)=(?:"([^"]*)"|([^,\s]*))/g;
+  let m;
+  while ((m = re.exec(header))) out[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : m[3];
+  return out;
+}
+
+function digestHeader(client, method, url, ch, nc) {
+  const u = new URL(url);
+  const uri = u.pathname + u.search;
+  const qop = (ch.qop || '').split(',').map(x => x.trim()).includes('auth') ? 'auth' : '';
+  const cnonce = Math.random().toString(16).slice(2, 18);
+  const ncHex = nc.toString(16).padStart(8, '0');
+  let ha1 = SN_md5(`${client.username}:${ch.realm}:${client.password || ''}`);
+  if (/md5-sess/i.test(ch.algorithm || '')) ha1 = SN_md5(`${ha1}:${ch.nonce}:${cnonce}`);
+  const ha2 = SN_md5(`${method}:${uri}`);
+  const response = qop
+    ? SN_md5(`${ha1}:${ch.nonce}:${ncHex}:${cnonce}:${qop}:${ha2}`)
+    : SN_md5(`${ha1}:${ch.nonce}:${ha2}`);
+  let h = `Digest username="${client.username}", realm="${ch.realm}", nonce="${ch.nonce}", uri="${uri}", response="${response}"`;
+  if (ch.algorithm) h += `, algorithm=${ch.algorithm}`;
+  if (ch.opaque) h += `, opaque="${ch.opaque}"`;
+  if (qop) h += `, qop=${qop}, nc=${ncHex}, cnonce="${cnonce}"`;
+  return h;
+}
+
+// fetch() to ruTorrent with the right login. Tries a cached Digest nonce first; on a 401 it reads
+// the server's challenge (Digest or Basic) and retries once.
+async function authFetch(client, url, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const go = auth => fetch(url, { ...opts, method, credentials: 'include', headers: { ...(opts.headers || {}), ...(auth ? { Authorization: auth } : {}) } });
+  if (!client.username) return go(null);
+
+  // Remembered scheme from an earlier 401 (lives as long as the service worker).
+  const cached = digestCache[client.id];
+  const first = !cached ? null
+    : cached.scheme === 'basic' ? basicHeader(client)
+    : digestHeader(client, method, url, cached.challenge, ++cached.nc);
+  let res = await go(first);
+  if (res.status !== 401) return res;
+
+  const www = res.headers.get('WWW-Authenticate') || '';
+  if (/^\s*Digest/i.test(www)) {
+    const challenge = parseChallenge(www.replace(/^\s*Digest\s+/i, ''));
+    digestCache[client.id] = { scheme: 'digest', challenge, nc: 1 };
+    res = await go(digestHeader(client, method, url, challenge, 1));
+  } else if (/^\s*Basic/i.test(www) || !www) {
+    digestCache[client.id] = { scheme: 'basic' };
+    res = await go(basicHeader(client));
+  }
+  if (res.status === 401) delete digestCache[client.id];
+  return res;
+}
+
+// rtorrent needs an absolute path. Folder names like "TV_SHOWS" are joined onto the server's
+// base folder (e.g. /home/user/downloads/TV_SHOWS). Without a base folder a bare name is NOT
+// sent — ruTorrent would hand rtorrent a path it can't use and the torrent can't start.
+function fullDirectory(client, directory) {
+  const d = (directory || '').trim();
+  if (!d) return '';
+  if (d.startsWith('/') || d.startsWith('~')) return d;
+  const base = (client.baseDir || '').trim().replace(/\/+$/, '');
+  if (!base) throw new Error(`${client.name}: folder "${d}" isn't a full path — set the server's Base folder in SNATCHER settings`);
+  return `${base}/${d}`;
+}
+
+// POST to ruTorrent's php/addtorrent.php. Sends either the .torrent bytes or a URL/magnet.
+async function addToRutorrent(client, dest, payload) {
+  const form = new FormData();
+  if (payload.b64) {
+    const blob = new Blob([SN.b64ToBytes(payload.b64)], { type: 'application/x-bittorrent' });
+    let fname = payload.filename || (payload.name || 'snatched').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 150);
+    if (!/\.torrent$/i.test(fname)) fname += '.torrent';
+    form.append('torrent_file', blob, fname);
+  } else {
+    form.append('url', payload.url);
+  }
+  const dir = fullDirectory(client, dest.directory);
+  if (dir) form.append('dir_edit', dir);
+  // "Send labels" off: no label at all (ruTorrent autotools AutoMove acts on any labelled torrent).
+  const label = client.sendLabels === false ? '' : (dest.label || client.defaultLabel);
+  if (label) form.append('label', label);
+  if (dest.notAddPath) form.append('not_add_path', '1');
+  if (client.startPaused) form.append('torrents_start_stopped', '1');
+
+  const res = await authFetch(client, baseUrl(client) + 'php/addtorrent.php?json=1', { method: 'POST', body: form });
+  if (res.status === 401 || res.status === 403) throw new Error(`${client.name}: login rejected (HTTP ${res.status}) — check username/password`);
+  if (res.status === 404) throw new Error(`${client.name}: addtorrent.php not found — check the ruTorrent URL`);
+  if (!res.ok) throw new Error(`${client.name}: HTTP ${res.status}`);
+
+  const text = await res.text();
+  // Newer ruTorrent answers {"result":"Success"}; older builds redirect to ...?result[]=Success
+  let result = '';
+  try { result = String(JSON.parse(text).result || ''); } catch (e) { /* not JSON */ }
+  if (!result) {
+    const m = (res.url + ' ' + text).match(/result(?:%5B%5D|\[\])?=(\w+)/i);
+    if (m) result = m[1];
+    else if (/addTorrentSuccess|Success/.test(text)) result = 'Success';
+    else if (/addTorrentFailed|Failed/.test(text)) result = 'Failed';
+  }
+  if (/^success$/i.test(result)) return true;
+  if (result) throw new Error(`${client.name}: ruTorrent said "${result}"`);
+  if (/<form[^>]+(login|password)/i.test(text)) throw new Error(`${client.name}: got a login page — check credentials`);
+  // Some setups return an empty 200 on success.
+  return true;
+}
+
+async function testClient(client) {
+  const res = await authFetch(client, baseUrl(client) + 'php/getsettings.php');
+  if (res.status === 401 || res.status === 403) return { ok: false, error: `Login rejected (HTTP ${res.status})` };
+  if (res.status === 404) {
+    const root = await authFetch(client, baseUrl(client));
+    const t = root.ok ? await root.text() : '';
+    if (/rutorrent/i.test(t)) return { ok: true, info: 'ruTorrent found (settings endpoint missing, adding should still work)' };
+    return { ok: false, error: `Not found (HTTP 404) — URL should point at the ruTorrent folder` };
+  }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+  const t = await res.text();
+  if (/<form[^>]+(login|password)/i.test(t)) return { ok: false, error: 'Got a login page instead of ruTorrent' };
+  return { ok: true, info: 'Connected to ruTorrent' };
+}
+
+// ---------- getting the .torrent bytes ----------
+
+async function getTorrentPayload(item, tabId, preferTorrent) {
+  const useMagnet = item.magnetUrl && (!item.torrentUrl || !preferTorrent);
+  if (useMagnet) return { url: item.magnetUrl, name: item.name };
+
+  const errors = [];
+  // 1) fetch from inside the tracker tab: same origin, so the tracker's cookies are sent.
+  if (tabId != null) {
+    try {
+      const r = await chrome.tabs.sendMessage(tabId, { type: 'fetchTorrent', url: item.torrentUrl });
+      if (r && r.ok) return { b64: r.b64, filename: r.filename, name: item.name };
+      if (r) errors.push(r.error);
+    } catch (e) { errors.push(String(e.message || e)); }
+  }
+  // 2) fetch from the extension (works for cross-domain download hosts).
+  try {
+    const res = await fetch(item.torrentUrl, { credentials: 'include' });
+    const buf = await res.arrayBuffer();
+    if (res.ok && SN.looksLikeTorrent(buf)) return { b64: SN.bufToB64(buf), name: item.name };
+    errors.push(`HTTP ${res.status}${res.ok ? ' (not a torrent)' : ''}`);
+  } catch (e) { errors.push(String(e.message || e)); }
+  // 3) magnet if we have one
+  if (item.magnetUrl) return { url: item.magnetUrl, name: item.name };
+  // 4) hand the URL to ruTorrent and let it download (works when the URL contains a passkey).
+  return { url: item.torrentUrl, name: item.name, note: errors.join('; ') };
+}
+
+async function sendItems(items, tabId, notify = true) {
+  const settings = await SN.getSettings();
+  const results = [];
+  if (!settings.clients.length) {
+    return { results: items.map(i => ({ key: i.key, name: i.name, ok: false, error: 'No download client set up — open SNATCHER options' })) };
+  }
+  for (const item of items) {
+    const dest = SN.findDestination(settings, item.destinationId) || SN.findDestination(settings, settings.defaultDestinationId) || settings.destinations[0];
+    const client = SN.clientForDestination(settings, dest);
+    const r = { key: item.key, name: item.name, destination: SN.destinationLabel(settings, dest) };
+    progress(item.key, 'sending');
+    try {
+      if (!client) throw new Error('Destination has no client');
+      // "Always send URL": let ruTorrent download the .torrent itself (needs a passkey in the link).
+      const payload = client.alwaysUrl && item.torrentUrl
+        ? { url: item.torrentUrl, name: item.name }
+        : await getTorrentPayload(item, tabId, settings.preferTorrent);
+      await addToRutorrent(client, dest, payload);
+      r.ok = true;
+    } catch (e) {
+      r.ok = false;
+      r.error = String(e.message || e);
+    }
+    progress(item.key, r.ok ? 'done' : 'error', r.error);
+    results.push(r);
+  }
+  if (notify) notifySummary(settings, results);
+  return { results };
+}
+
+function progress(key, status, error) {
+  chrome.runtime.sendMessage({ type: 'progress', key, status, error }).catch(() => { /* popup closed */ });
+}
+
+function notifySummary(settings, results) {
+  if (!settings.notifications || !results.length) return;
+  const ok = results.filter(r => r.ok);
+  const bad = results.filter(r => !r.ok);
+  let title, message;
+  if (results.length === 1) {
+    const r = results[0];
+    title = r.ok ? `Snatched → ${r.destination}` : 'Snatch failed';
+    message = r.ok ? r.name : `${r.name}\n${r.error}`;
+  } else {
+    title = `Snatched ${ok.length} of ${results.length}`;
+    message = bad.length ? `Failed: ${bad.map(b => b.name).slice(0, 3).join(', ')}\n${bad[0].error}` : 'All sent.';
+  }
+  chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title, message: message.slice(0, 300) });
+}
+
+// ---------- messages ----------
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'sendItems') {
+    const tabId = msg.fromTab ? sender.tab && sender.tab.id : msg.tabId;
+    sendItems(msg.items, tabId, !msg.fromTab).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'testClient') {
+    testClient(msg.client).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
+    return true;
+  }
+});
+
+// ---------- right-click menu ----------
+
+async function buildMenus() {
+  const settings = await SN.getSettings();
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({ id: 'sn_root', title: 'SNATCHER', contexts: ['link'] });
+  chrome.contextMenus.create({ id: 'sn_auto', parentId: 'sn_root', title: 'Snatch (auto-detect folder)', contexts: ['link'] });
+  chrome.contextMenus.create({ id: 'sn_sep', parentId: 'sn_root', type: 'separator', contexts: ['link'] });
+  for (const d of settings.destinations) {
+    chrome.contextMenus.create({ id: 'sn_dest_' + d.id, parentId: 'sn_root', title: 'Send to ' + SN.destinationLabel(settings, d), contexts: ['link'] });
+  }
+}
+
+chrome.runtime.onInstalled.addListener(details => {
+  buildMenus();
+  if (details.reason === 'install') chrome.runtime.openOptionsPage();
+});
+chrome.runtime.onStartup.addListener(buildMenus);
+chrome.storage.onChanged.addListener(changes => {
+  if (changes.destinations || changes.clients) buildMenus();
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!String(info.menuItemId).startsWith('sn_')) return;
+  const settings = await SN.getSettings();
+  let ctx = null;
+  try { ctx = await chrome.tabs.sendMessage(tab.id, { type: 'contextForLink', url: info.linkUrl }); } catch (e) { /* no content script */ }
+  const isMagnet = info.linkUrl.startsWith('magnet:');
+  const item = (ctx && ctx.item) || { key: info.linkUrl, name: info.linkText || info.linkUrl, torrentUrl: isMagnet ? '' : info.linkUrl, magnetUrl: isMagnet ? info.linkUrl : '', rowContext: '' };
+
+  if (info.menuItemId === 'sn_auto') {
+    const host = ctx ? ctx.host : new URL(tab.url).hostname;
+    item.destinationId = SN.pickDestination(settings, host, item.rowContext, ctx ? ctx.pageContext : tab.title).destinationId;
+  } else {
+    item.destinationId = String(info.menuItemId).replace('sn_dest_', '');
+  }
+  const { results } = await sendItems([item], tab.id, false);
+  const r = results[0];
+  chrome.tabs.sendMessage(tab.id, { type: 'toast', ok: r.ok, text: r.ok ? `Sent: ${r.name} → ${r.destination}` : `Failed: ${r.error}` }).catch(() => {});
+});
