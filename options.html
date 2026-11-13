@@ -54,6 +54,11 @@
     <label class="check"><input type="checkbox" data-opt="confirmOnClick"> Show a folder picker on click (untick to send straight to the auto-detected folder)</label>
     <label class="check"><input type="checkbox" data-opt="preferTorrent"> When a row has both a .torrent and a magnet, use the .torrent</label>
     <label class="check"><input type="checkbox" data-opt="notifications"> Desktop notification after sending from the popup</label>
+    <label class="field">Toolbar icon opens
+      <select data-opt="iconOpens">
+        <option value="panel">The side panel on the page (stays open while you scroll) — shortcut Alt+Shift+S</option>
+        <option value="popup">The small popup list</option>
+      </select></label>
     <label class="field">Extra download-link pattern (regex, optional — for trackers whose download links aren't detected)
       <input data-opt="extraLinkPattern" placeholder="e.g. /grab/\d+|getfile\.php"></label>
   </section>

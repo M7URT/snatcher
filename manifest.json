@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SNATCHER",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Send .torrent and magnet links from the page you're on to your ruTorrent clients, routed to the right folder by section.",
   "permissions": ["storage", "contextMenus", "notifications", "scripting", "activeTab"],
   "host_permissions": ["<all_urls>"],
@@ -9,7 +9,6 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "SNATCHER",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -25,10 +24,16 @@
     "128": "icons/icon128.png"
   },
   "options_page": "options.html",
+  "commands": {
+    "toggle-panel": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Open or close the SNATCHER panel on this page"
+    }
+  },
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["lib/common.js", "content.js"],
+      "js": ["lib/common.js", "content.js", "panel.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

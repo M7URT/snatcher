@@ -119,6 +119,8 @@
     return item;
   }
 
+  const rowsByKey = new Map(); // item key -> its row element, for the side panel
+
   function scan() {
     const byRow = new Map();
     document.querySelectorAll('a[href]').forEach(a => {
@@ -136,10 +138,12 @@
     });
     const seen = new Set();
     const items = [];
-    for (const item of byRow.values()) {
+    rowsByKey.clear();
+    for (const [row, item] of byRow.entries()) {
       item.key = item.torrentUrl || item.magnetUrl;
       if (seen.has(item.key)) continue;
       seen.add(item.key);
+      rowsByKey.set(item.key, row);
       items.push(item);
     }
     return { host: location.hostname, pageContext: pageContext(), items };
@@ -174,6 +178,11 @@
       sendResponse({ host: location.hostname, pageContext: pageContext(), item });
     } else if (msg.type === 'toast') {
       toast(msg.text, msg.ok);
+    } else if (msg.type === 'togglePanel') {
+      if (window.__snatcherPanel) window.__snatcherPanel.toggle();
+      sendResponse({ ok: !!window.__snatcherPanel });
+    } else if (msg.type === 'progress') {
+      if (window.__snatcherPanel) window.__snatcherPanel.onProgress(msg);
     }
   });
 
@@ -275,6 +284,14 @@
     root.appendChild(box);
     select.focus();
   }
+
+  // Shared with panel.js (same content-script world).
+  window.__snatcher = {
+    scan, shadowHost, toast, linkKind,
+    rowFor: key => rowsByKey.get(key),
+    settings: () => settings,
+    overlayId: OVERLAY_ID
+  };
 
   function toast(text, ok) {
     const root = shadowHost();

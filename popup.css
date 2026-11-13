@@ -5,6 +5,7 @@ header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; bord
 .brand { font-weight: 800; letter-spacing: .08em; color: var(--accent); }
 .section { flex: 1; color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 header a { color: var(--dim); text-decoration: none; font-size: 16px; }
+#dock { font-size: 12px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
 header a:hover { color: var(--text); }
 #toolbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 #filter { flex: 1; }

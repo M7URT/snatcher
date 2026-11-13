@@ -4,13 +4,17 @@ let settings, tab, scan, items = [];
 
 $('openOptions').onclick = e => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 $('setupBtn').onclick = () => chrome.runtime.openOptionsPage();
+$('dock').onclick = async () => {
+  await chrome.runtime.sendMessage({ type: 'togglePanel', tabId: tab.id });
+  window.close();
+};
 
 async function scanTab() {
   try {
     return await chrome.tabs.sendMessage(tab.id, { type: 'scan' });
   } catch (e) {
     // Page was open before SNATCHER was installed/reloaded: inject now.
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['lib/common.js', 'content.js'] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['lib/common.js', 'content.js', 'panel.js'] });
     return await chrome.tabs.sendMessage(tab.id, { type: 'scan' });
   }
 }

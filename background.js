@@ -182,7 +182,7 @@ async function sendItems(items, tabId, notify = true) {
     const dest = SN.findDestination(settings, item.destinationId) || SN.findDestination(settings, settings.defaultDestinationId) || settings.destinations[0];
     const client = SN.clientForDestination(settings, dest);
     const r = { key: item.key, name: item.name, destination: SN.destinationLabel(settings, dest) };
-    progress(item.key, 'sending');
+    progress(item.key, 'sending', '', tabId);
     try {
       if (!client) throw new Error('Destination has no client');
       // "Always send URL": let ruTorrent download the .torrent itself (needs a passkey in the link).
@@ -195,15 +195,18 @@ async function sendItems(items, tabId, notify = true) {
       r.ok = false;
       r.error = String(e.message || e);
     }
-    progress(item.key, r.ok ? 'done' : 'error', r.error);
+    progress(item.key, r.ok ? 'done' : 'error', r.error, tabId);
     results.push(r);
   }
   if (notify) notifySummary(settings, results);
   return { results };
 }
 
-function progress(key, status, error) {
-  chrome.runtime.sendMessage({ type: 'progress', key, status, error }).catch(() => { /* popup closed */ });
+// Progress goes to the popup (runtime message) and to the page's side panel (tab message).
+function progress(key, status, error, tabId) {
+  const msg = { type: 'progress', key, status, error };
+  chrome.runtime.sendMessage(msg).catch(() => { /* popup closed */ });
+  if (tabId != null) chrome.tabs.sendMessage(tabId, msg).catch(() => { /* tab gone */ });
 }
 
 function notifySummary(settings, results) {
@@ -227,8 +230,15 @@ function notifySummary(settings, results) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'sendItems') {
     const tabId = msg.fromTab ? sender.tab && sender.tab.id : msg.tabId;
-    sendItems(msg.items, tabId, !msg.fromTab).then(sendResponse);
+    const notify = msg.notify !== undefined ? msg.notify : !msg.fromTab;
+    sendItems(msg.items, tabId, notify).then(sendResponse);
     return true;
+  }
+  if (msg.type === 'openOptions') {
+    chrome.runtime.openOptionsPage();
+  }
+  if (msg.type === 'togglePanel' && msg.tabId != null) {
+    togglePanel(msg.tabId);
   }
   if (msg.type === 'testClient') {
     testClient(msg.client).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
@@ -249,6 +259,35 @@ async function buildMenus() {
   }
 }
 
+// ---------- side panel: toolbar icon + Alt+Shift+S ----------
+
+const PAGE_SCRIPTS = ['lib/common.js', 'content.js', 'panel.js'];
+
+async function togglePanel(tabId) {
+  try {
+    const r = await chrome.tabs.sendMessage(tabId, { type: 'togglePanel' });
+    if (r && r.ok) return;
+  } catch (e) { /* no content script in this tab yet */ }
+  // Tab was open before SNATCHER was (re)loaded: inject, then toggle.
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: PAGE_SCRIPTS });
+    await chrome.tabs.sendMessage(tabId, { type: 'togglePanel' });
+  } catch (e) { /* browser page or Web Store: nothing we can do */ }
+}
+
+async function applyIconMode() {
+  const s = await SN.getSettings();
+  await chrome.action.setPopup({ popup: s.iconOpens === 'popup' ? 'popup.html' : '' });
+}
+
+chrome.action.onClicked.addListener(tab => togglePanel(tab.id)); // only fires when no popup is set
+chrome.commands.onCommand.addListener(async command => {
+  if (command !== 'toggle-panel') return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab) togglePanel(tab.id);
+});
+applyIconMode();
+
 chrome.runtime.onInstalled.addListener(details => {
   buildMenus();
   if (details.reason === 'install') chrome.runtime.openOptionsPage();
@@ -256,6 +295,7 @@ chrome.runtime.onInstalled.addListener(details => {
 chrome.runtime.onStartup.addListener(buildMenus);
 chrome.storage.onChanged.addListener(changes => {
   if (changes.destinations || changes.clients) buildMenus();
+  if (changes.iconOpens) applyIconMode();
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

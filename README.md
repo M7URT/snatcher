@@ -61,6 +61,12 @@ Use the tester box under the rules to try out text, and hover the grey line unde
 ## Using it
 
 - **Click a download/magnet link** to get a small picker with the detected folder already selected. Press Enter or click **Snatch**. Alt/Ctrl/Shift-click downloads the file normally. In settings you can switch off the picker so clicks send straight away.
+- **Side panel (toolbar icon or Alt+Shift+S)**: a checklist of every torrent on the page, docked on the right. It stays open while you scroll.
+  - Tick what you want (or **All** / filter, then **All**), adjust any folder or use **Set ticked to…**, then press **Snatch N**. Everything is sent one after another with no more clicks.
+  - Ticked rows get an orange outline on the page, and sent rows a green dashed one. Click a name to scroll to it.
+  - Failures show ✕ (hover for why) and stay ticked, so one more click retries them.
+  - It re-scans when the page loads more results. If you leave it open it comes back on the next page in that tab; **⇥** tucks it into a small tab on the edge.
+  - Settings → Behaviour can switch the toolbar icon back to the small popup. The shortcut can be changed at `brave://extensions/shortcuts`.
 - **Toolbar popup**: lists every torrent on the page with its auto-picked folder. Tick the ones you want (or All), change any folder, then click **Snatch N**. Each row shows ✓/✕ when done (hover ✕ for the error).
 - **Right-click any link → SNATCHER** to auto-detect, or send to a specific destination.
 
