@@ -88,6 +88,9 @@
       const t = clean(el.textContent);
       if (t.length < 60) bits.push(t);
     });
+    // Plain-text categories like "TV :: Boxsets", "Movies » Foreign", "Games › Xbox".
+    const sep = /([A-Za-z0-9][\w&+'.\/-]*(?: [\w&+'.\/-]+)?)\s*(?:::|»|›)\s*([A-Za-z0-9][\w&+'.\/-]*(?: [\w&+'.\/-]+){0,2})/g;
+    for (const m of clean(row.textContent).matchAll(sep)) bits.push(`${m[1]} :: ${m[2]}`);
     return [...new Set(bits.map(clean).filter(b => b && b.length < 60))].join(' | ').slice(0, 300);
   }
 
@@ -100,7 +103,11 @@
     });
     row.querySelectorAll('a[href]').forEach(el => {
       if (CAT_HREF.test(el.getAttribute('href') || '')) {
-        bits.push(clean(el.textContent), el.getAttribute('href'));
+        // Only the path, never the site's own address: a tracker's domain (e.g. "…0day…") would
+        // otherwise match rules for every torrent on it.
+        let path = el.getAttribute('href');
+        try { const u = new URL(path, location.href); path = decodeURIComponent(u.pathname + u.search); } catch (e) { /* keep as is */ }
+        bits.push(clean(el.textContent), path);
       }
     });
     row.querySelectorAll('[class*="cat" i], [data-category]').forEach(el => {
