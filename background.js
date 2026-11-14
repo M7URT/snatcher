@@ -1,5 +1,6 @@
-// SNATCHER background worker: uploads torrents to ruTorrent and owns the right-click menu.
-importScripts('lib/common.js', 'lib/md5.js');
+// SNATCHER background worker: sends torrents to ruTorrent / Deluge / qBittorrent / Transmission
+// (adapters in lib/clients.js) and owns the right-click menu.
+importScripts('lib/common.js', 'lib/md5.js', 'lib/clients.js');
 
 // ---------- ruTorrent ----------
 
@@ -289,6 +290,12 @@ async function checkFolders() {
   for (const d of settings.destinations) {
     const client = SN.clientForDestination(settings, d);
     if (!client) { out[d.id] = { ok: false, note: 'no server' }; continue; }
+    if (!adapterFor(client).listDir) {
+      let p = '';
+      try { p = fullDirectory(client, d.directory); } catch (e) { /* no base folder */ }
+      out[d.id] = { ok: null, path: p || '(client default)', note: `can't browse folders on ${(SN.CLIENT_TYPES[client.type] || {}).name || 'this client'}` };
+      continue;
+    }
     let full;
     try { full = fullDirectory(client, d.directory); } catch (e) { out[d.id] = { ok: false, note: 'set the Base folder' }; continue; }
     if (!full) { out[d.id] = { ok: true, path: '(ruTorrent default)', note: 'default folder' }; continue; }
@@ -296,7 +303,7 @@ async function checkFolders() {
     const parent = clean.slice(0, clean.lastIndexOf('/')) || '/';
     const name = clean.slice(clean.lastIndexOf('/') + 1);
     const key = client.id + '|' + parent;
-    if (!listings.has(key)) listings.set(key, listDir(client, parent));
+    if (!listings.has(key)) listings.set(key, adapterFor(client).listDir(client, parent));
     try {
       const listing = await listings.get(key);
       if (listing.path && listing.path.replace(/\/+$/, '') !== parent.replace(/\/+$/, '')) {
@@ -316,30 +323,22 @@ async function checkFolders() {
 
 // ---------- what's already on the seedbox / already sent ----------
 
-const listCache = {}; // client.id -> { at, names: [] }
+const listCache = {}; // client.id -> { at, list: [{hash, name}] }
 
-// Names of every torrent on a client, via ruTorrent's httprpc plugin (cached for a minute).
-async function torrentNames(client) {
+// Every torrent already on a client (cached for a minute).
+async function torrentList(client) {
   const hit = listCache[client.id];
-  if (hit && Date.now() - hit.at < 60000) return hit.names;
-  const res = await authFetch(client, baseUrl(client) + 'plugins/httprpc/action.php', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'mode=list'
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const j = await res.json();
-  // Each torrent is [is_open, is_hash_checking, is_hash_checked, state, name, ...] keyed by hash.
-  const names = Object.values(j.t || {}).map(v => Array.isArray(v) ? String(v[4] || '') : '').filter(Boolean);
-  listCache[client.id] = { at: Date.now(), names };
-  return names;
+  if (hit && Date.now() - hit.at < 60000) return hit.list;
+  const list = await adapterFor(client).list(client);
+  listCache[client.id] = { at: Date.now(), list };
+  return list;
 }
 
 async function seedboxState() {
   const settings = await SN.getSettings();
   const have = {}; // normalised name -> client name
   await Promise.all(settings.clients.filter(c => !c.isTest).map(async c => {
-    try { (await torrentNames(c)).forEach(n => { have[SN.normName(n)] = c.name; }); } catch (e) { /* httprpc missing: history only */ }
+    try { (await torrentList(c)).forEach(t => { if (t.name) have[SN.normName(t.name)] = c.name; }); } catch (e) { /* list not available: history only */ }
   }));
   const { sentHistory = {} } = await chrome.storage.local.get('sentHistory');
   return { have, sent: sentHistory };
@@ -394,19 +393,36 @@ async function sendItems(items, tabId, notify = true) {
     progress(item.key, 'sending', '', tabId);
     try {
       if (!client) throw new Error('Destination has no client');
-      // "Always send URL": let ruTorrent download the .torrent itself (needs a passkey in the link).
+      const skip = settings.skipDuplicates !== false && !item.force;
+      // Already there under the same name? Skip before even downloading the .torrent.
+      let onClient = null;
+      if (skip) {
+        try { onClient = await torrentList(client); } catch (e) { /* can't list: send anyway */ }
+      }
+      const already = hash => onClient && onClient.some(t => hash ? t.hash === hash : SN.normName(t.name) === SN.normName(item.name));
+      if (already('')) throw Object.assign(new Error(`Already on ${client.name} — skipped`), { skipped: true });
+      // "Always send URL": let the client download the .torrent itself (needs a passkey in the link).
       const payload = client.alwaysUrl && item.torrentUrl
         ? { url: item.torrentUrl, name: item.name }
         : await getTorrentPayload(item, tabId, settings.preferTorrent);
-      await addToRutorrent(client, dest, payload);
+      const hash = payload.b64 ? await SN.infoHash(SN.b64ToBytes(payload.b64)) : SN.magnetHash(payload.url);
+      if (hash && already(hash)) throw Object.assign(new Error(`Already on ${client.name} — skipped`), { skipped: true });
+      const added = await adapterFor(client).add(client, dest, payload);
+      delete listCache[client.id];
+      if (added && added.duplicate) {
+        let really = !added.maybe;
+        if (added.maybe) { try { really = !hash || (await torrentList(client)).some(t => t.hash === hash); } catch (e) { really = true; } }
+        if (really) throw Object.assign(new Error(`Already on ${client.name} — skipped`), { skipped: true });
+        throw new Error(`${client.name}: the client refused the torrent`);
+      }
       r.ok = true;
       await recordSent(item, r.destination);
-      delete listCache[client.id];
     } catch (e) {
       r.ok = false;
       r.error = String(e.message || e);
+      if (e.skipped) r.skipped = true;
     }
-    progress(item.key, r.ok ? 'done' : 'error', r.error, tabId);
+    progress(item.key, r.ok ? 'done' : r.skipped ? 'skipped' : 'error', r.error, tabId);
     results.push(r);
   }
   if (notify) notifySummary(settings, results);
@@ -423,15 +439,16 @@ function progress(key, status, error, tabId) {
 function notifySummary(settings, results) {
   if (!settings.notifications || !results.length) return;
   const ok = results.filter(r => r.ok);
-  const bad = results.filter(r => !r.ok);
+  const skipped = results.filter(r => r.skipped);
+  const bad = results.filter(r => !r.ok && !r.skipped);
   let title, message;
   if (results.length === 1) {
     const r = results[0];
-    title = r.ok ? `Snatched → ${r.destination}` : 'Snatch failed';
+    title = r.ok ? `Snatched → ${r.destination}` : r.skipped ? 'Already there' : 'Snatch failed';
     message = r.ok ? r.name : `${r.name}\n${r.error}`;
   } else {
-    title = `Snatched ${ok.length} of ${results.length}`;
-    message = bad.length ? `Failed: ${bad.map(b => b.name).slice(0, 3).join(', ')}\n${bad[0].error}` : 'All sent.';
+    title = `Snatched ${ok.length} of ${results.length}` + (skipped.length ? ` (${skipped.length} already there)` : '');
+    message = bad.length ? `Failed: ${bad.map(b => b.name).slice(0, 3).join(', ')}\n${bad[0].error}` : skipped.length ? 'The rest were already on the client.' : 'All sent.';
   }
   chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon128.png', title, message: message.slice(0, 300) });
 }
@@ -460,7 +477,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'testClient') {
-    testClient(msg.client).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
+    adapterFor(msg.client).test(msg.client).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
   }
 });
@@ -507,6 +524,32 @@ chrome.commands.onCommand.addListener(async command => {
 });
 applyIconMode();
 
+// ---------- qBittorrent: give SNATCHER's requests the client's own Origin ----------
+// qBittorrent's CSRF protection refuses requests whose Origin/Referer isn't its own address.
+// Requests a page makes are untouched: the rule only applies to requests from SNATCHER itself
+// (no tab) going to a qBittorrent client you've set up.
+
+async function syncHeaderRules() {
+  if (!chrome.declarativeNetRequest) return;
+  const settings = await SN.getSettings();
+  const origins = [...new Set(settings.clients.filter(c => c.type === 'qbittorrent' && c.url)
+    .map(c => { try { return new URL(rootUrl(c)).origin; } catch (e) { return ''; } }).filter(Boolean))];
+  const old = await chrome.declarativeNetRequest.getSessionRules();
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: old.map(r => r.id),
+    addRules: origins.map((origin, i) => ({
+      id: i + 1,
+      priority: 1,
+      action: { type: 'modifyHeaders', requestHeaders: [
+        { header: 'Origin', operation: 'set', value: origin },
+        { header: 'Referer', operation: 'set', value: origin + '/' }
+      ] },
+      condition: { urlFilter: '|' + origin + '/', tabIds: [chrome.tabs.TAB_ID_NONE], resourceTypes: ['xmlhttprequest', 'other'] }
+    }))
+  });
+}
+syncHeaderRules().catch(e => console.warn('SNATCHER header rules', e));
+
 chrome.runtime.onInstalled.addListener(details => {
   buildMenus();
   if (details.reason === 'install') chrome.runtime.openOptionsPage();
@@ -514,6 +557,7 @@ chrome.runtime.onInstalled.addListener(details => {
 chrome.runtime.onStartup.addListener(buildMenus);
 chrome.storage.onChanged.addListener(changes => {
   if (changes.destinations || changes.clients) buildMenus();
+  if (changes.clients) syncHeaderRules().catch(() => {});
   if (changes.iconOpens) applyIconMode();
 });
 
@@ -533,5 +577,5 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
   const { results } = await sendItems([item], tab.id, false);
   const r = results[0];
-  chrome.tabs.sendMessage(tab.id, { type: 'toast', ok: r.ok, text: r.ok ? `Sent: ${r.name} → ${r.destination}` : `Failed: ${r.error}` }).catch(() => {});
+  chrome.tabs.sendMessage(tab.id, { type: 'toast', ok: r.ok || r.skipped, text: r.ok ? `Sent: ${r.name} → ${r.destination}` : r.skipped ? r.error : `Failed: ${r.error}` }).catch(() => {});
 });

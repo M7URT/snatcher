@@ -78,20 +78,35 @@ function renderClients() {
     };
     const def = el('input', { type: 'radio', name: 'defClient', checked: s.defaultClientId === c.id });
     def.onchange = () => { s.defaultClientId = c.id; save(); };
-    box.append(el('div', { className: 'client' }, [
+    const type = c.type || 'rutorrent';
+    const info = SN.CLIENT_TYPES[type];
+    const app = info.name;
+    const port = info.port ? ':' + info.port : ':12345';
+    const typeSel = select(c, 'type', Object.entries(SN.CLIENT_TYPES).map(([k, v]) => [k === 'rutorrent' ? '' : k, v.name]), renderClients);
+    const fields = [
       el('label', {}, ['Name', input(c, 'name', { placeholder: 'Seedbox', onedit: refreshClientSelects })]),
-      el('label', {}, ['ruTorrent URL', input(c, 'url', { placeholder: 'https://box.example.com:12345' })]),
-      el('label', {}, ['Username', input(c, 'username', { autocomplete: 'off' })]),
-      el('label', {}, ['Password', input(c, 'password', { type: 'password', autocomplete: 'new-password' })]),
-      el('label', {}, ['Relative path', input(c, 'path', { placeholder: '/rutorrent' })]),
-      el('label', {}, ['Default label', input(c, 'defaultLabel', { placeholder: 'used when a folder has no label' })]),
-      el('label', { style: 'grid-column: span 2', title: 'Folder names like TV_SHOWS are put inside this. Copy it from ruTorrent: select a torrent → General tab → Save path (drop the torrent name at the end).' },
-        ['Base folder (full path on the server)', input(c, 'baseDir', { placeholder: '/home/you/downloads' })]),
+      el('label', {}, ['App', typeSel]),
+      el('label', { style: 'grid-column: span 2', title: info.help }, [`${app} address`, input(c, 'url', { placeholder: `http://192.168.1.10${port}` })])
+    ];
+    if (type !== 'deluge') fields.push(el('label', {}, ['Username', input(c, 'username', { autocomplete: 'off' })]));
+    fields.push(el('label', {}, [type === 'deluge' ? 'Web UI password' : 'Password', input(c, 'password', { type: 'password', autocomplete: 'new-password' })]));
+    if (type === 'rutorrent') fields.push(el('label', {}, ['Relative path', input(c, 'path', { placeholder: '/rutorrent' })]));
+    fields.push(el('label', {}, [type === 'qbittorrent' ? 'Default category' : 'Default label', input(c, 'defaultLabel', { placeholder: 'used when a folder has no label' })]));
+    fields.push(el('label', { style: 'grid-column: span 2', title: `Folder names like TV_SHOWS are put inside this. Copy it from ${app}: a torrent's save path / download location, without the torrent's own name.` },
+      ['Base folder (full path on the server)', input(c, 'baseDir', { placeholder: '/home/you/downloads' })]));
+    const labelsTip = {
+      rutorrent: 'Untick if ruTorrent autotools AutoMove (or another label rule) moves new torrents and breaks them.',
+      deluge: "Sets the folder's label with Deluge's Label plugin (lower-case). Untick if you don't use labels.",
+      qbittorrent: "Sends the folder's label as the qBittorrent category.",
+      transmission: "Sends the folder's label as a Transmission label (Transmission 3+)."
+    }[type];
+    box.append(el('div', { className: 'client' }, [
+      ...fields,
       el('div', { className: 'actions' }, [
         el('label', {}, [def, 'Default client']),
         el('label', {}, [check(c, 'startPaused'), 'Add paused']),
-        el('label', { title: 'Untick if ruTorrent autotools AutoMove (or another label rule) moves new torrents and breaks them.' }, [sendLabelsCheck(c), 'Send labels']),
-        el('label', { title: 'Let ruTorrent download the .torrent itself instead of SNATCHER uploading it. Only works if the link contains your passkey.' }, [check(c, 'alwaysUrl'), 'Always send URL']),
+        el('label', { title: labelsTip }, [sendLabelsCheck(c), type === 'qbittorrent' ? 'Send categories' : 'Send labels']),
+        el('label', { title: `Let ${app} download the .torrent itself instead of SNATCHER uploading it. Only works if the link contains your passkey.` }, [check(c, 'alwaysUrl'), 'Always send URL']),
         test, result, el('span', { className: 'spacer' }), del
       ])
     ]));
@@ -159,8 +174,8 @@ function renderDests() {
       el('td', { className: 'c' }, [check(d, 'notAddPath')]),
       (() => {
         const st = folderStatus[d.id];
-        return el('td', { className: 'fstat' + (st ? (st.ok ? ' ok' : ' bad') : ''), title: st ? (st.path || '') + (st.note ? ' — ' + st.note : '') : 'Not checked yet',
-          textContent: st ? (st.ok ? '✓ ' + (st.note || 'exists') : '✕ ' + (st.note || 'missing')) : '' });
+        return el('td', { className: 'fstat' + (st ? (st.ok ? ' ok' : st.ok === null ? '' : ' bad') : ''), title: st ? (st.path || '') + (st.note ? ' — ' + st.note : '') : 'Not checked yet',
+          textContent: st ? (st.ok ? '✓ ' + (st.note || 'exists') : st.ok === null ? '– ' + st.note : '✕ ' + (st.note || 'missing')) : '' });
       })(),
       el('td', { className: 'nowrap' }, [...moveButtons(s.destinations, idx, renderAll), del])
     ]));
@@ -172,7 +187,7 @@ $('checkFolders').onclick = async () => {
   const r = await chrome.runtime.sendMessage({ type: 'checkFolders' });
   if (!r || r.error) { $('checkResult').textContent = 'Check failed: ' + ((r && r.error) || 'no answer'); return; }
   folderStatus = r;
-  const bad = Object.values(r).filter(x => !x.ok).length;
+  const bad = Object.values(r).filter(x => x.ok === false).length;
   $('checkResult').textContent = bad ? `${bad} folder(s) need attention — see the On server column` : 'All folders found ✓';
   renderDests();
 };

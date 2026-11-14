@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SNATCHER settings page test</title>
+<!-- Open via test/mock_clients.py: http://127.0.0.1:8095/src/test/options-test.html
+     Loads the real options page with chrome.* stubbed and one client of each app, then reports. -->
+<script>
+(async () => {
+  const errors = [];
+  const html = await (await fetch('../options.html')).text();
+  const stub = `<script>
+    window.onerror = (m) => parent.postMessage({ err: String(m) }, '*');
+    const store = { clients: [
+      { id: 'a', name: 'RU', url: 'https://x', type: '' },
+      { id: 'b', name: 'DE', url: 'http://x:8112', type: 'deluge' },
+      { id: 'c', name: 'QB', url: 'http://x:8080', type: 'qbittorrent' },
+      { id: 'd', name: 'TR', url: 'http://x:9091', type: 'transmission' } ] };
+    window.chrome = { storage: { local: { get: async () => JSON.parse(JSON.stringify(store)), set: async o => Object.assign(store, o) }, onChanged: { addListener() {} } },
+      runtime: { sendMessage: async () => ({}), onMessage: { addListener() {} } } };
+  <\/script><base href="${new URL('../', location.href)}">`;
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'width:1200px;height:900px';
+  window.addEventListener('message', e => { if (e.data && e.data.err) errors.push(e.data.err); });
+  frame.srcdoc = html.replace('<head>', '<head>' + stub);
+  document.body.appendChild(frame);
+  await new Promise(r => setTimeout(r, 1500));
+  const d = frame.contentDocument;
+  const cards = [...d.querySelectorAll('.client')].map(c => [...c.querySelectorAll(':scope > label')].map(l => l.firstChild.textContent).join(' / '));
+  const out = [
+    { name: 'no script errors', pass: !errors.length, detail: errors.join('; ') },
+    { name: '4 client cards', pass: cards.length === 4, detail: cards.length },
+    ...cards.map(c => ({ name: 'card', pass: true, detail: c })),
+    { name: 'deluge has no username', pass: !/Username/.test(cards[1] || ''), detail: cards[1] },
+    { name: 'skip duplicates option shown', pass: !!d.querySelector('[data-opt=skipDuplicates]'), detail: '' }
+  ];
+  await fetch('/report', { method: 'POST', body: JSON.stringify(out) });
+})();
+</script>

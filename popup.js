@@ -55,7 +55,7 @@ function render() {
     sel.onchange = () => { it.destinationId = sel.value; it.checked = true; render(); updateCount(); };
     const st = row.querySelector('.status');
     st.className = 'status ' + (it.status || '');
-    st.textContent = { sending: '…', done: '✓', error: '✕' }[it.status] || '';
+    st.textContent = { sending: '…', done: '✓', error: '✕', skipped: '=' }[it.status] || '';
     if (it.error) st.title = it.error;
     row.querySelector('.name').onclick = () => { cb.checked = !cb.checked; cb.onchange(); };
     list.appendChild(row);
@@ -93,7 +93,7 @@ $('send').onclick = async () => {
   });
   for (const r of (res && res.results) || []) {
     const it = items.find(i => i.key === r.key);
-    if (it) { it.status = r.ok ? 'done' : 'error'; it.error = r.error || ''; if (r.ok) it.checked = false; }
+    if (it) { it.status = r.ok ? 'done' : r.skipped ? 'skipped' : 'error'; it.error = r.error || ''; if (r.ok || r.skipped) it.checked = false; }
   }
   render();
 };

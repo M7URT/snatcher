@@ -64,6 +64,7 @@
     .sp-st.queued, .sp-st.sending { color: #9a9ca5; }
     .sp-st.done { color: #3fae6f; }
     .sp-st.error { color: #e0574f; cursor: help; }
+    .sp-st.skipped { color: #6fd39b; cursor: help; }
     .sp-empty { padding: 24px; text-align: center; color: #9a9ca5; display: flex; flex-direction: column; gap: 12px; align-items: center; }
     .sp-empty[hidden] { display: none; }
     .sp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-top: 1px solid #33373f; }
@@ -366,7 +367,7 @@ Read from this row: ${item.rowContext}`;
 
       const st = row.querySelector('.sp-st');
       st.className = 'sp-st ' + (it.status || '');
-      st.textContent = { queued: '·', sending: '…', done: '✓', error: '✕' }[it.status] || '';
+      st.textContent = { queued: '·', sending: '…', done: '✓', error: '✕', skipped: '=' }[it.status] || '';
       if (it.error) st.title = it.error;
       listEl.appendChild(row);
     }
@@ -381,8 +382,8 @@ Read from this row: ${item.rowContext}`;
     panel.querySelector('.sp-all').checked = want.length > 0 && want.every(i => i.checked);
     const btn = panel.querySelector('.sp-send');
     if (sending) {
-      const total = items.filter(i => ['queued', 'sending', 'done', 'error'].includes(i.status) && i.batch).length;
-      const finished = items.filter(i => (i.status === 'done' || i.status === 'error') && i.batch).length;
+      const total = items.filter(i => ['queued', 'sending', 'done', 'error', 'skipped'].includes(i.status) && i.batch).length;
+      const finished = items.filter(i => ['done', 'error', 'skipped'].includes(i.status) && i.batch).length;
       btn.disabled = true;
       btn.textContent = `Sending ${Math.min(finished + 1, total)} of ${total}…`;
     } else {
@@ -450,27 +451,31 @@ Read from this row: ${item.rowContext}`;
     }
     for (const r of (res && res.results) || []) {
       const it = items.find(i => i.key === r.key);
-      if (it) finish(it, r.ok, r.error);
+      if (it) finish(it, r.ok ? 'done' : r.skipped ? 'skipped' : 'error', r.error);
     }
     sending = false;
     render();
     refreshHave();
-    const ok = (res.results || []).filter(r => r.ok).length;
-    const total = (res.results || []).length;
-    API().toast(ok === total ? `Snatched ${ok} of ${total}` : `Snatched ${ok} of ${total} — hover ✕ in the panel for why`, ok === total);
+    const results = (res && res.results) || [];
+    const ok = results.filter(r => r.ok).length;
+    const skipped = results.filter(r => r.skipped).length;
+    const failed = results.length - ok - skipped;
+    const extra = skipped ? ` · ${skipped} already there` : '';
+    API().toast(failed ? `Snatched ${ok} of ${results.length}${extra} — hover ✕ in the panel for why` : `Snatched ${ok} of ${results.length}${extra}`, !failed);
   }
 
-  function finish(it, ok, error) {
-    it.status = ok ? 'done' : 'error';
+  function finish(it, status, error) {
+    it.status = status;
     it.error = error || '';
-    if (ok) { it.checked = false; unmark(it); mark(it, 'done'); }
+    if (status === 'skipped') { it.checked = false; unmark(it); }
+    if (status === 'done') { it.checked = false; unmark(it); mark(it, 'done'); }
   }
 
   function onProgress(msg) {
     const it = items.find(i => i.key === msg.key);
     if (!it || !isOpen) return;
     if (msg.status === 'sending') it.status = 'sending';
-    else finish(it, msg.status === 'done', msg.error);
+    else finish(it, msg.status, msg.error);
     render();
   }
 

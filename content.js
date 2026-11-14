@@ -13,18 +13,50 @@
 
   // ---------- link detection ----------
 
-  const DOWNLOAD_RE = /\.torrent(?:$|[?#])|download\.php|\/download(?:\/|\?|$)|\/dl\/|\/down\.php|action=download|torrent_pass=|passkey=|get_?torrent|\/torrents?\/\d+\/download/i;
+  // Sure signs of a torrent link, on any site.
+  const TORRENT_RE = /\.torrent(?:$|[?#&])|torrent_pass=|passkey=|get_?torrent|\/torrents?\/(?:\d+\/)?download|download_torrent|torrent[_-]?download/i;
+  // Generic "download" links: only torrents on a tracker page, ordinary downloads anywhere else.
+  const MAYBE_RE = /download\.php|\/download(?:\/|\?|$)|\/dl\/|\/down\.php|action=download/i;
+  // Files that are never torrents: these always download normally.
+  const NOT_TORRENT_RE = /\.(exe|msi|msix|appx|zip|rar|7z|gz|tgz|tar|bz2|xz|zst|dmg|pkg|deb|rpm|apk|ipa|appimage|iso|img|bin|jar|pdf|epub|mobi|azw3?|cbz|cbr|docx?|xlsx?|pptx?|odt|txt|csv|json|xml|jpe?g|png|gif|webp|svg|mp[34]|m4a|mkv|avi|mov|wmv|webm|wav|flac|ogg|srt|ass|sub|nzb|nfo)(?:$|[?#&])/i;
+
+  // Does this page look like a torrent tracker? (seeders/leechers columns, magnets, passkey links)
+  // A lone .torrent link doesn't count: software sites offer those next to their normal downloads.
+  let trackerCache = { at: 0, value: false };
+  function looksLikeTracker() {
+    if (Date.now() - trackerCache.at < 3000) return trackerCache.value;
+    let value = false;
+    try {
+      value = !!document.querySelector('a[href^="magnet:"], a[href*="passkey="], a[href*="torrent_pass="]')
+        || /\b(seed(er)?s|leech(er)?s|snatche[sd]|peers)\b/i.test((document.body && document.body.innerText || "").slice(0, 300000));
+    } catch (e) { /* ignore */ }
+    trackerCache = { at: Date.now(), value };
+    return value;
+  }
+
+  function fileNameOf(a) {
+    const bits = [a.getAttribute('download') || ''];
+    try {
+      const u = new URL(a.href);
+      bits.push(u.pathname);
+      u.searchParams.forEach(v => bits.push(v));
+    } catch (e) { bits.push(a.href); }
+    return bits;
+  }
 
   function linkKind(a) {
     if (!a || !a.href || a.closest('#' + OVERLAY_ID)) return null;
     const href = a.href;
     if (href.startsWith('magnet:')) return 'magnet';
     if (!/^https?:/i.test(href)) return null;
-    if (DOWNLOAD_RE.test(href)) return 'torrent';
     if (settings && settings.extraLinkPattern) {
       const re = SN.safeRegex(settings.extraLinkPattern);
       if (re && re.test(href)) return 'torrent';
     }
+    // An .exe, .zip, .pdf… in the address or the download name is an ordinary download.
+    if (!/\.torrent(?:$|[?#&])/i.test(href) && fileNameOf(a).some(b => NOT_TORRENT_RE.test(b))) return null;
+    if (TORRENT_RE.test(href)) return 'torrent';
+    if (MAYBE_RE.test(href) && looksLikeTracker()) return 'torrent';
     return null;
   }
 
@@ -54,10 +86,35 @@
 
   function clean(t) { return (t || '').replace(/\s+/g, ' ').trim(); }
 
+  // Small coloured tags next to a name: "1080p", "FREELEECH", "NEW", "DOUBLE UPLOAD"…
+  const BADGE_SEL = '[class*="badge" i], [class*="tag" i], [class*="label" i], [class*="chip" i], [class*="pill" i], [class*="flag" i], [class*="free" i], sup, small';
+
+  // A link's text with a space wherever one element ends and the next begins, and the badges left
+  // out, so "Name<span>1080p</span>" reads "Name", not "Name1080p".
+  function nameText(el, keepBadges) {
+    const parts = [];
+    const walk = node => {
+      for (const ch of node.childNodes) {
+        if (ch.nodeType === 3) parts.push(ch.nodeValue);
+        else if (ch.nodeType === 1) {
+          const t = clean(ch.textContent);
+          if (!keepBadges && ch.matches(BADGE_SEL) && t.length < 25 && clean(el.textContent).length - t.length > 3) continue;
+          if (/^(script|style)$/i.test(ch.tagName)) continue;
+          const inline = /^(b|i|em|strong|mark|u|font|abbr|wbr)$/i.test(ch.tagName); // search highlights
+          if (!inline) parts.push(' ');
+          walk(ch);
+          if (!inline) parts.push(' ');
+        }
+      }
+    };
+    walk(el);
+    return clean(parts.join(''));
+  }
+
   function titleFor(row, a) {
     const candidates = [...row.querySelectorAll('a[href]')]
       .filter(x => !linkKind(x) && clean(x.textContent).length > 3)
-      .map(x => ({ x, text: clean(x.textContent), score: clean(x.textContent).length + (/details|torrents?[\/.?]|[?&]id=/i.test(x.href) ? 200 : 0) }))
+      .map(x => { const text = nameText(x); return { x, text, score: text.length + (/details|torrents?[\/.?]|[?&]id=/i.test(x.href) ? 200 : 0) }; })
       .sort((p, q) => q.score - p.score);
     if (candidates.length) return candidates[0].text;
     const own = clean(a.getAttribute('title') || a.textContent);
@@ -90,7 +147,7 @@
     });
     // Plain-text categories like "TV :: Boxsets", "Movies » Foreign", "Games › Xbox".
     const sep = /([A-Za-z0-9][\w&+'.\/-]*(?: [\w&+'.\/-]+)?)\s*(?:::|»|›)\s*([A-Za-z0-9][\w&+'.\/-]*(?: [\w&+'.\/-]+){0,2})/g;
-    for (const m of clean(row.textContent).matchAll(sep)) bits.push(`${m[1]} :: ${m[2]}`);
+    for (const m of nameText(row, true).matchAll(sep)) bits.push(`${m[1]} :: ${m[2]}`);
     return [...new Set(bits.map(clean).filter(b => b && b.length < 60))].join(' | ').slice(0, 300);
   }
 
@@ -345,7 +402,7 @@
   async function send(items) {
     const res = await chrome.runtime.sendMessage({ type: 'sendItems', items, fromTab: true });
     const r = res && res.results && res.results[0];
-    if (r) toast(r.ok ? `Sent: ${r.name} → ${r.destination}` : `Failed: ${r.error}`, r.ok);
+    if (r) toast(r.ok ? `Sent: ${r.name} → ${r.destination}` : r.skipped ? r.error : `Failed: ${r.error}`, r.ok || r.skipped);
     return r;
   }
 

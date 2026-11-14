@@ -11,9 +11,10 @@
 
   <section>
     <h2>1 · Download clients</h2>
-    <p class="help">Each ruTorrent you send to — seedbox or local. The URL is the address you open ruTorrent at in the browser,
-      e.g. <code>https://box.example.com:12345</code> plus relative path <code>/rutorrent</code>. Easiest: in Add Remote Torrent export its settings,
-      then use <b>Import from Add Remote Torrent</b> below. That brings over your server, password and every download folder.</p>
+    <p class="help">Each torrent app you send to — seedbox or local: <b>ruTorrent</b>, <b>Deluge</b>, <b>qBittorrent</b> or <b>Transmission</b>.
+      The address is the one you open its web interface at in the browser, e.g. <code>https://box.example.com:12345</code> (ruTorrent: plus relative path <code>/rutorrent</code>),
+      <code>http://192.168.1.10:8112</code> (Deluge), <code>:8080</code> (qBittorrent) or <code>:9091</code> (Transmission).
+      Coming from Add Remote Torrent? Export its settings, then use <b>Import from Add Remote Torrent</b> below to bring over your server, password and every download folder.</p>
     <div id="clients"></div>
     <button id="addClient">+ Add client</button>
     <label class="button primary">Import from Add Remote Torrent…<input type="file" id="importArt" accept=".json,application/json" hidden></label>
@@ -22,10 +23,10 @@
 
   <section>
     <h2>2 · Destinations (folders)</h2>
-    <p class="help">Where things land. Directory is the path <em>on the client</em> (e.g. <code>/home/user/downloads/movies</code>); leave blank for ruTorrent's default.
-      Label is the ruTorrent label. The ● picks the fallback used when no rule matches.</p>
+    <p class="help">Where things land. Directory is the path <em>on the client</em> (e.g. <code>/home/user/downloads/movies</code>); leave blank for the client's default.
+      Label is the ruTorrent/Deluge/Transmission label or qBittorrent category. The ● picks the fallback used when no rule matches.</p>
     <table id="dests" class="grid">
-      <thead><tr><th>Default</th><th>Name</th><th>Client</th><th>Directory on client</th><th>Label</th><th title="Don't create a sub-folder named after the torrent">No subfolder</th><th>On server</th><th></th></tr></thead>
+      <thead><tr><th>Default</th><th>Name</th><th>Client</th><th>Directory on client</th><th>Label</th><th title="Don't create a sub-folder named after the torrent">No subfolder</th><th title="ruTorrent only: does the folder exist?">On server</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <button id="addDest">+ Add destination</button>
@@ -55,6 +56,7 @@
     <h2>4 · Behaviour</h2>
     <label class="check"><input type="checkbox" data-opt="interceptClicks"> Clicking a torrent/magnet link sends it to SNATCHER (Alt/Ctrl/Shift-click downloads normally)</label>
     <label class="check"><input type="checkbox" data-opt="confirmOnClick"> Show a folder picker on click (untick to send straight to the auto-detected folder)</label>
+    <label class="check"><input type="checkbox" data-opt="skipDuplicates"> Skip torrents that are already on the client they're going to (checked by info-hash, then by name)</label>
     <label class="check"><input type="checkbox" data-opt="preferTorrent"> When a row has both a .torrent and a magnet, use the .torrent</label>
     <label class="check"><input type="checkbox" data-opt="notifications"> Desktop notification after sending from the popup</label>
     <label class="field">Toolbar icon opens

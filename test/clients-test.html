@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SNATCHER client adapter test</title>
+<!-- Open via test/mock_clients.py: http://127.0.0.1:8095/src/test/clients-test.html
+     Runs the real background.js + lib/clients.js in this page (chrome.* stubbed) against the mock
+     Deluge / qBittorrent / Transmission, then posts the results to /report. -->
+<pre id="out">running…</pre>
+<script>
+  // ---- minimal chrome.* stub: in-memory storage, everything else a no-op ----
+  const store = {};
+  const noop = () => new Proxy(function () {}, {
+    get: (t, k) => k === 'then' ? undefined : noop(),
+    apply: () => Promise.resolve(undefined)
+  });
+  window.chrome = new Proxy({
+    storage: { local: {
+      get: async keys => { const o = {}; (Array.isArray(keys) ? keys : [keys]).forEach(k => { if (k in store) o[k] = structuredClone(store[k]); }); return o; },
+      set: async o => { Object.assign(store, structuredClone(o)); }
+    }, onChanged: { addListener() {} } },
+    tabs: { TAB_ID_NONE: -1, sendMessage: async () => { throw new Error('no tab'); }, query: async () => [] },
+    declarativeNetRequest: { getSessionRules: async () => [], updateSessionRules: async r => { window.dnr = r; } }
+  }, { get: (t, k) => k in t ? t[k] : noop() });
+  window.importScripts = () => {};
+</script>
+<script src="../lib/common.js"></script>
+<script src="../lib/md5.js"></script>
+<script src="../lib/clients.js"></script>
+<script src="../background.js"></script>
+<script>
+(async () => {
+  const out = [];
+  const log = (name, pass, detail) => out.push({ name, pass: !!pass, detail });
+  const base = location.origin;
+  const clients = [
+    { id: 'cd', type: 'deluge', name: 'DELUGE', url: base + '/deluge', password: 'deluge', baseDir: '/data', sendLabels: true, startPaused: true },
+    { id: 'cq', type: 'qbittorrent', name: 'QBIT', url: base + '/qbit', username: 'admin', password: 'adminadmin', baseDir: '/data', sendLabels: true },
+    { id: 'ct', type: 'transmission', name: 'TRANS', url: base + '/tr', baseDir: '/data', sendLabels: true }
+  ];
+  const destinations = clients.map(c => ({ id: 'd_' + c.id, name: 'TV_SHOWS ' + c.name, clientId: c.id, directory: 'TV_SHOWS', label: 'TV' }));
+  await chrome.storage.local.set({ clients, destinations, defaultDestinationId: destinations[0].id, notifications: false });
+  await syncHeaderRules();
+
+  // info-hash: JS must agree with the mock (Python hashlib)
+  const bytes = new Uint8Array(await (await fetch('/sample.torrent')).arrayBuffer());
+  log('infoHash computes', /^[0-9A-F]{40}$/.test(await SN.infoHash(bytes)), await SN.infoHash(bytes));
+  log('magnetHash base32', SN.magnetHash('magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U') === '6162636465666768696A6B6C6D6E6F7071727374', SN.magnetHash('magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U'));
+
+  for (const c of clients) {
+    const t = await adapterFor(c).test(c).catch(e => ({ ok: false, error: e.message }));
+    log(c.name + ' test connection', t.ok, t.info || t.error);
+    const send = async (item, extra = {}) => {
+      if ('skip' in extra) await chrome.storage.local.set({ skipDuplicates: extra.skip });
+      const r = (await sendItems([{ key: item.key || item.torrentUrl || item.magnetUrl, destinationId: 'd_' + c.id, ...item }], null, false)).results[0];
+      await chrome.storage.local.set({ skipDuplicates: true });
+      return r;
+    };
+    const tor = { name: 'Sample Show S01E01 1080p', torrentUrl: base + '/sample-' + c.id + 'A.torrent' };
+    let r = await send(tor);
+    log(c.name + ' sends .torrent', r.ok, r.error || r.destination);
+    r = await send(tor);
+    log(c.name + ' skips same name', r.skipped, r.error);
+    r = await send({ ...tor, name: 'Totally different title', key: 'x1' });
+    log(c.name + ' skips same hash, other name', r.skipped, r.error);
+    r = await send({ ...tor, name: 'Totally different title', key: 'x2' }, { skip: false });
+    log(c.name + ' client itself reports duplicate', r.skipped, r.error);
+    const mag = { name: 'Magnet Thing ' + c.id, magnetUrl: 'magnet:?xt=urn:btih:' + (c.id === 'cd' ? 'A' : c.id === 'cq' ? 'B' : 'C').repeat(40) + '&dn=Magnet.Thing.' + c.id };
+    r = await send(mag);
+    log(c.name + ' sends magnet', r.ok, r.error);
+    r = await send({ ...mag, name: 'renamed magnet', key: 'm2' });
+    log(c.name + ' skips magnet by hash', r.skipped, r.error);
+    const list = await torrentList(c).catch(e => e.message);
+    log(c.name + ' lists torrents', Array.isArray(list) && list.length === 2, JSON.stringify(list));
+  }
+  const state = await (await fetch('/state')).json();
+  const first = o => Object.values(o)[0] || {};
+  log('Deluge got folder + label + paused', first(state.deluge).dir === '/data/TV_SHOWS' && first(state.deluge).label === 'tv' && first(state.deluge).paused === true, JSON.stringify(first(state.deluge)));
+  log('qBittorrent got savepath + category', first(state.qbit).dir === '/data/TV_SHOWS' && first(state.qbit).label === 'TV', JSON.stringify(first(state.qbit)));
+  log('Transmission got download-dir + label', first(state.tr).dir === '/data/TV_SHOWS' && first(state.tr).label === 'TV', JSON.stringify(first(state.tr)));
+  log('qBittorrent header rule made', window.dnr && window.dnr.addRules.length === 1 && window.dnr.addRules[0].condition.urlFilter === '|' + base + '/', JSON.stringify(window.dnr && window.dnr.addRules));
+
+  document.getElementById('out').textContent = out.map(o => (o.pass ? 'PASS ' : 'FAIL ') + o.name + ' — ' + o.detail).join('\n');
+  await fetch('/report', { method: 'POST', body: JSON.stringify(out) });
+})().catch(e => fetch('/report', { method: 'POST', body: JSON.stringify([{ name: 'harness crashed', pass: false, detail: String(e.stack || e) }]) }));
+</script>

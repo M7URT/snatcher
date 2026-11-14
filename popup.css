@@ -23,6 +23,7 @@ input[type=search], select { background: var(--panel); color: var(--text); borde
 .status.sending { color: var(--dim); }
 .status.done { color: var(--ok); }
 .status.error { color: var(--bad); cursor: help; }
+.status.skipped { color: var(--dim); cursor: help; }
 .kind { font-size: 10px; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-right: 4px; }
 footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-top: 1px solid var(--line); }
 #count { color: var(--dim); }

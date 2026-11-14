@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SNATCHER link detection test</title>
+<!-- Open via test/mock_clients.py: http://127.0.0.1:8095/src/test/links-test.html (tracker page)
+     and …/links-test.html?plain (ordinary site). Runs the real content.js, posts results to /report. -->
+<div id="page"></div>
+<script>
+  const plain = location.search.includes('plain');
+  document.getElementById('page').innerHTML = plain ? `
+    <h1>Some software site</h1>
+    <p><a id="p_dl" href="/download">Download now</a> <a id="p_dl2" href="/download?id=55">Download v2</a>
+       <a id="p_exe" href="/files/setup.exe">setup.exe</a> <a id="p_tor" href="/files/linux.iso.torrent">Torrent</a></p>` : `
+    <table>
+      <tr><th>Name</th><th>DL</th><th>Seeders</th></tr>
+      <tr><td><a href="/torrents/101">Cunk on Cinema S01 1080p iP WEB-DL AAC2 0 H 264-RAWR<span class="badge">1080p</span><span class="badge">FREELEECH</span></a>
+          <div>tea in TV :: Boxsets</div></td><td><a id="t_dl" href="/torrents/download/101">DL</a></td><td>5</td></tr>
+      <tr><td><a href="/torrents/102"><b>Rivals</b>.S02E01.1080p.HEVC</a></td><td><a id="t_dl2" href="/download.php?id=102">DL</a></td><td>3</td></tr>
+      <tr><td><a href="/torrents/103">Some.App.v1.2</a></td><td><a id="t_zip" href="/download.php?file=app.zip">DL</a></td><td>2</td></tr>
+      <tr><td><a href="/torrents/104">Other.Thing</a></td><td><a id="t_exe" href="/download/104" download="installer.exe">DL</a></td><td>1</td></tr>
+    </table>`;
+  const store = { interceptClicks: true };
+  window.chrome = {
+    storage: { local: { get: async () => ({ ...store }), set: async () => {} }, onChanged: { addListener() {} } },
+    runtime: { onMessage: { addListener() {} }, sendMessage: async () => ({}) }
+  };
+</script>
+<script src="../lib/common.js"></script>
+<script src="../content.js"></script>
+<script>
+setTimeout(async () => {
+  const out = [];
+  const log = (name, pass, detail) => out.push({ name, pass: !!pass, detail });
+  const kind = id => window.__snatcher.linkKind(document.getElementById(id));
+  if (plain) {
+    log('plain site: /download is a normal download', kind('p_dl') === null, kind('p_dl'));
+    log('plain site: /download?id= is a normal download', kind('p_dl2') === null, kind('p_dl2'));
+    log('plain site: .exe is a normal download', kind('p_exe') === null, kind('p_exe'));
+    log('plain site: .torrent still caught', kind('p_tor') === 'torrent', kind('p_tor'));
+  } else {
+    log('tracker: /torrents/download/101 caught', kind('t_dl') === 'torrent', kind('t_dl'));
+    log('tracker: download.php?id caught', kind('t_dl2') === 'torrent', kind('t_dl2'));
+    log('tracker: download.php?file=app.zip ignored', kind('t_zip') === null, kind('t_zip'));
+    log('tracker: download="installer.exe" ignored', kind('t_exe') === null, kind('t_exe'));
+    const items = window.__snatcher.scan().items;
+    const names = items.map(i => i.name);
+    log('name has no badges / run-on', names[0] === 'Cunk on Cinema S01 1080p iP WEB-DL AAC2 0 H 264-RAWR', names[0]);
+    log('search highlight stays joined', names[1] === 'Rivals.S02E01.1080p.HEVC', names[1]);
+    log('only 2 torrents listed', items.length === 2, items.length);
+    log('category text read', /TV :: Boxsets/.test(items[0].catText), items[0].catText);
+  }
+  await fetch('/report', { method: 'POST', body: JSON.stringify(out) });
+}, 300);
+</script>
