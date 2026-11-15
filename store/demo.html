@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Open Media Tracker :: Browse</title>
+<!-- Store screenshot page (not part of the extension). Runs the real content.js + panel.js on a made-up
+     tracker listing free/legal torrents, with chrome.* stubbed. ?shot=panel | picker
+     Serve with test/mock_clients.py: http://127.0.0.1:8095/src/store/demo.html?shot=panel -->
+<style>
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #f3f4f7; color: #222; }
+  header { background: #2c3e66; color: #fff; padding: 14px 28px; display: flex; gap: 28px; align-items: center; }
+  header b { font-size: 19px; letter-spacing: .5px; } header a { color: #c9d4ef; text-decoration: none; } header a.on { color: #fff; border-bottom: 2px solid #fff; }
+  main { padding: 18px 28px; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; box-shadow: 0 1px 2px #0002; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #e6e8ee; text-align: left; }
+  th { background: #e9ecf3; font-size: 12px; text-transform: uppercase; color: #556; }
+  td.cat a { font-size: 12px; background: #dfe6f7; color: #2c3e66; padding: 2px 7px; border-radius: 4px; text-decoration: none; white-space: nowrap; }
+  td.n a { color: #1d3b8f; text-decoration: none; font-weight: 500; }
+  td.dl a { text-decoration: none; margin-right: 6px; }
+  .s { color: #188038; font-weight: 600; } .l { color: #b3261e; }
+</style>
+</head>
+<body>
+<header><b>Open Media Tracker</b><a class="on" href="/browse">Browse</a><a href="/browse?cat=linux">Linux</a><a href="/browse?cat=film">Open films</a><a href="/browse?cat=software">Software</a></header>
+<main>
+<h1>Browse all torrents</h1>
+<table>
+  <tr><th>Category</th><th>Name</th><th>Get</th><th>Size</th><th>Seeders</th><th>Leechers</th></tr>
+  <tr><td class="cat"><a href="/browse?cat=linux">Linux ISOs</a></td><td class="n"><a href="/t/101">ubuntu-24.04.1-desktop-amd64.iso</a></td><td class="dl"><a href="/download/101/ubuntu-24.04.1-desktop-amd64.iso.torrent">⬇</a><a href="magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=ubuntu">🧲</a></td><td>5.8 GiB</td><td class="s">1,834</td><td class="l">41</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=linux">Linux ISOs</a></td><td class="n"><a href="/t/102">debian-12.8.0-amd64-DVD-1.iso</a></td><td class="dl"><a href="/download/102/debian-12.8.0-amd64-DVD-1.iso.torrent">⬇</a></td><td>3.7 GiB</td><td class="s">622</td><td class="l">9</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=linux">Linux ISOs</a></td><td class="n"><a href="/t/103">Fedora-Workstation-Live-x86_64-41</a></td><td class="dl"><a href="/download/103/Fedora-Workstation-41.torrent">⬇</a></td><td>2.2 GiB</td><td class="s">410</td><td class="l">12</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=film">Open films</a></td><td class="n"><a href="/t/201">Big Buck Bunny (2008) 1080p</a></td><td class="dl"><a href="/download/201/big-buck-bunny-1080p.torrent">⬇</a></td><td>691 MiB</td><td class="s">288</td><td class="l">4</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=film">Open films</a></td><td class="n"><a href="/t/202">Sintel (2010) 4K</a></td><td class="dl"><a href="/download/202/sintel-4k.torrent">⬇</a></td><td>4.1 GiB</td><td class="s">157</td><td class="l">6</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=film">Open films</a></td><td class="n"><a href="/t/203">Night of the Living Dead (1968) public domain</a></td><td class="dl"><a href="/download/203/night-of-the-living-dead-1968.torrent">⬇</a></td><td>1.4 GiB</td><td class="s">96</td><td class="l">2</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=series">Web series</a></td><td class="n"><a href="/t/301">Pioneer One S01 complete (CC BY-NC-SA)</a></td><td class="dl"><a href="/download/301/pioneer-one-s01.torrent">⬇</a></td><td>2.6 GiB</td><td class="s">63</td><td class="l">1</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=software">Software</a></td><td class="n"><a href="/t/401">LibreOffice 24.8 Windows x64</a></td><td class="dl"><a href="/download/401/LibreOffice_24.8_Win_x86-64.msi.torrent">⬇</a></td><td>341 MiB</td><td class="s">211</td><td class="l">3</td></tr>
+  <tr><td class="cat"><a href="/browse?cat=software">Software</a></td><td class="n"><a href="/t/402">Blender 4.2 LTS Linux x64</a></td><td class="dl"><a href="/download/402/blender-4.2-linux-x64.torrent">⬇</a></td><td>312 MiB</td><td class="s">0</td><td class="l">0</td></tr>
+</table>
+</main>
+<script>
+  const shot = new URLSearchParams(location.search).get('shot') || 'panel';
+  const store = {
+    clients: [
+      { id: 'home', type: 'qbittorrent', name: 'Home PC', url: 'http://192.168.1.20:8080' },
+      { id: 'box', type: 'deluge', name: 'Seedbox', url: 'https://seedbox.example.net:8112' }
+    ],
+    defaultClientId: 'home',
+    destinations: [
+      { id: 'd_linux', name: 'Linux ISOs', clientId: 'box', directory: 'linux', label: 'linux' },
+      { id: 'd_films', name: 'Films', clientId: 'home', directory: 'films', label: 'films' },
+      { id: 'd_tv', name: 'Series', clientId: 'home', directory: 'series', label: 'series' },
+      { id: 'd_soft', name: 'Software', clientId: 'box', directory: 'software', label: 'software' }
+    ],
+    defaultDestinationId: 'd_soft',
+    rules: [
+      { id: 'r1', site: '*', scope: 'any', match: 'linux', destinationId: 'd_linux' },
+      { id: 'r2', site: '*', scope: 'any', match: 'series|S\\d\\d', destinationId: 'd_tv' },
+      { id: 'r3', site: '*', scope: 'any', match: 'film', destinationId: 'd_films' },
+      { id: 'r4', site: '*', scope: 'any', match: 'software', destinationId: 'd_soft' }
+    ],
+    interceptClicks: true, confirmOnClick: true, hideNoSeeders: true, panelWidth: 470
+  };
+  window.chrome = {
+    storage: { local: { get: async () => JSON.parse(JSON.stringify(store)), set: async () => {} }, onChanged: { addListener() {} } },
+    runtime: {
+      onMessage: { addListener() {} },
+      sendMessage: async m => {
+        if (m.type === 'seedboxState') return { have: { 'debian1280amd64dvd1iso': 'Seedbox' }, sent: {} };
+        if (m.type === 'siteAccess') return { allowed: true, pattern: 'https://tracker.example/*' };
+        return {};
+      }
+    }
+  };
+</script>
+<script src="../lib/common.js"></script>
+<script src="../content.js"></script>
+<script src="../panel.js"></script>
+<script>
+  setTimeout(async () => {
+    if (shot === 'panel') {
+      await window.__snatcherPanel.open(false);
+      setTimeout(() => {
+        const host = document.querySelector('#snatcher-overlay-host, [id^=snatcher]');
+        const root = host && host.shadowRoot;
+        const boxes = root ? [...root.querySelectorAll('.sp-item input[type=checkbox]')] : [];
+        [0, 3, 4].forEach(i => boxes[i] && boxes[i].click());
+      }, 300);
+    } else if (shot === 'picker') {
+      document.querySelector('a[href*="/download/201/"]').click();
+    }
+  }, 400);
+</script>
+</body>
+</html>

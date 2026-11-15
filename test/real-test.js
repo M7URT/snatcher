@@ -12,6 +12,8 @@
     deluge: { id: 'rd', type: 'deluge', name: 'DELUGE', url: 'http://127.0.0.1', password: q.get('depass') || 'deluge', baseDir: dl, sendLabels: true, startPaused: true },
     transmission: { id: 'rt', type: 'transmission', name: 'TRANS', url: 'http://127.0.0.1', username: q.get('truser') || '', password: q.get('trpass') || '', baseDir: dl, sendLabels: true, startPaused: true }
   };
+  // ?qburl= / ?deurl= / ?trurl= point a client somewhere else (e.g. the mocks: http://127.0.0.1:8095/qbit)
+  for (const [k, c] of Object.entries({ qburl: all.qbittorrent, deurl: all.deluge, trurl: all.transmission })) if (q.get(k)) c.url = q.get(k);
   const clients = want.map(w => all[w]).filter(Boolean);
   const destinations = clients.map(c => ({ id: 'd_' + c.id, name: 'TV_SHOWS ' + c.name, clientId: c.id, directory: 'TV_SHOWS', label: 'TV' }));
   await chrome.storage.local.set({ clients, destinations, defaultDestinationId: destinations[0].id, notifications: false, skipDuplicates: true });
@@ -42,6 +44,12 @@
     r = await send(c, { ...mag, name: 'renamed magnet', key: 'm2' + c.id });
     log(c.name + ' skips magnet by hash', r.skipped, r.error);
   }
+  // Site access: SNATCHER runs by itself only where it's allowed
+  const granted = await chrome.permissions.contains({ origins: ['http://127.0.0.1/*'] });
+  const reg = await chrome.scripting.getRegisteredContentScripts();
+  const acc = await chrome.runtime.sendMessage({ type: 'siteAccess', url: 'http://127.0.0.1:8095/x' });
+  log('content script registered only for allowed sites', granted ? reg.length === 1 && reg[0].matches.includes('http://127.0.0.1/*') && !reg[0].matches.includes('https://*/*') : !reg.length, JSON.stringify(reg.map(r => r.matches)));
+  log('siteAccess answers', acc && acc.allowed === granted && acc.pattern === 'http://127.0.0.1/*', JSON.stringify(acc));
   const st = await chrome.runtime.sendMessage({ type: 'seedboxState' });
   log('panel "On client" tags see the torrents', st && Object.keys(st.have || {}).length >= clients.length, JSON.stringify(st && st.have).slice(0, 300));
   document.getElementById('out').textContent = out.map(o => (o.pass ? 'PASS ' : 'FAIL ') + o.name + ' — ' + o.detail).join('\n');

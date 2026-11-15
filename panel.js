@@ -65,6 +65,10 @@
     .sp-st.done { color: #3fae6f; }
     .sp-st.error { color: #e0574f; cursor: help; }
     .sp-st.skipped { color: #6fd39b; cursor: help; }
+    .sp-site { display: flex; gap: 8px; align-items: center; padding: 7px 12px; background: #2d2a22; color: #e8d9a8; border-bottom: 1px solid #33373f; font-size: 12px; }
+    .sp-site[hidden] { display: none; }
+    .sp-site span { flex: 1; }
+    .sp-site .sp-btn { padding: 4px 10px; font-size: 12px; }
     .sp-empty { padding: 24px; text-align: center; color: #9a9ca5; display: flex; flex-direction: column; gap: 12px; align-items: center; }
     .sp-empty[hidden] { display: none; }
     .sp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-top: 1px solid #33373f; }
@@ -92,6 +96,7 @@
         <button class="sp-icon sp-min" title="Tuck away (keeps your ticks)">⇥</button>
         <button class="sp-icon sp-close" title="Close  (Alt+Shift+S)">×</button>
       </div>
+      <div class="sp-site" hidden><span>SNATCHER only runs here when you click its icon.</span><button class="sp-btn sp-allow">Always run here</button></div>
       <div class="sp-tools">
         <label><input type="checkbox" class="sp-all"> All</label>
         <input type="search" class="sp-filter" placeholder="Filter: rivals 1080p -x265" title="All words must match, any order. &quot;exact phrase&quot; in quotes, -word to exclude.">
@@ -117,6 +122,7 @@
     tab.onclick = () => setCollapsed(false);
     q('.sp-settings').onclick = () => chrome.runtime.sendMessage({ type: 'openOptions' });
     q('.sp-rescan').onclick = rescan;
+    q('.sp-allow').onclick = () => chrome.runtime.sendMessage({ type: 'askSite', url: location.href });
     q('.sp-filter').oninput = render;
     q('.sp-all').onchange = e => {
       visible().filter(i => !e.target.checked || !haveLabel(i)).forEach(i => setChecked(i, e.target.checked));
@@ -166,6 +172,7 @@
     rescan();
     setCollapsed(!!startCollapsed);
     refreshHave();
+    checkSite();
     startObserver();
     document.addEventListener('pointerdown', onOutside, true);
   }
@@ -205,6 +212,17 @@
   }
 
   // ---------- already have it? ----------
+
+  // Not one of the sites SNATCHER runs on by itself: offer to remember it.
+  async function checkSite() {
+    try {
+      const r = await chrome.runtime.sendMessage({ type: 'siteAccess', url: location.href });
+      panel.querySelector('.sp-site').hidden = !r || r.allowed || !r.pattern;
+    } catch (e) { /* extension reloaded */ }
+  }
+  chrome.runtime.onMessage.addListener(msg => {
+    if (msg && msg.type === 'siteAllowed' && panel) panel.querySelector('.sp-site').hidden = true;
+  });
 
   async function refreshHave() {
     try { have = (await chrome.runtime.sendMessage({ type: 'seedboxState' })) || have; } catch (e) { /* extension reloaded */ }

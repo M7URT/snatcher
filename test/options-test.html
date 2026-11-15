@@ -15,7 +15,9 @@
       { id: 'c', name: 'QB', url: 'http://x:8080', type: 'qbittorrent' },
       { id: 'd', name: 'TR', url: 'http://x:9091', type: 'transmission' } ] };
     window.chrome = { storage: { local: { get: async () => JSON.parse(JSON.stringify(store)), set: async o => Object.assign(store, o) }, onChanged: { addListener() {} } },
-      runtime: { sendMessage: async () => ({}), onMessage: { addListener() {} } } };
+      runtime: { sendMessage: async () => ({}), onMessage: { addListener() {} } },
+      permissions: { getAll: async () => ({ origins: ['https://tracker.example.org/*', 'http://x/*'] }), contains: async () => false,
+        request: async () => true, remove: async () => true, onAdded: { addListener() {} }, onRemoved: { addListener() {} } } };
   <\/script><base href="${new URL('../', location.href)}">`;
   const frame = document.createElement('iframe');
   frame.style.cssText = 'width:1200px;height:900px';
@@ -30,6 +32,8 @@
     { name: '4 client cards', pass: cards.length === 4, detail: cards.length },
     ...cards.map(c => ({ name: 'card', pass: true, detail: c })),
     { name: 'deluge has no username', pass: !/Username/.test(cards[1] || ''), detail: cards[1] },
+    { name: 'clients without access show Allow', pass: d.querySelectorAll('.client .access button').length === 4, detail: d.querySelectorAll('.client .access button').length },
+    { name: 'allowed sites listed', pass: /tracker\.example\.org/.test(d.getElementById('sites').textContent) && /a client/.test(d.getElementById('sites').textContent), detail: d.getElementById('sites').textContent },
     { name: 'skip duplicates option shown', pass: !!d.querySelector('[data-opt=skipDuplicates]'), detail: '' }
   ];
   await fetch('/report', { method: 'POST', body: JSON.stringify(out) });

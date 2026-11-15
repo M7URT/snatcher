@@ -136,8 +136,10 @@ class H(BaseHTTPRequestHandler):
             f = os.path.normpath(os.path.join(ROOT, path[5:]))
             if not f.startswith(ROOT) or not os.path.isfile(f):
                 return self.send(404, 'not found')
-            ctype = 'text/html' if f.endswith('.html') else 'text/javascript' if f.endswith('.js') else 'application/octet-stream'
-            return self.send(200, open(f, 'rb').read(), ctype + '; charset=utf-8')
+            ext = os.path.splitext(f)[1].lower()
+            ctype = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+                     '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml'}.get(ext, 'application/octet-stream')
+            return self.send(200, open(f, 'rb').read(), ctype)
         if path.startswith('/qbit/api/v2/'):
             return self.qbit(path[len('/qbit/api/v2/'):], b'')
         self.send(404, 'not found')

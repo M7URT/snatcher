@@ -9,7 +9,8 @@ It's just a conduit: it doesn't host, index or link to any content. It moves a t
 1. Open `brave://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked** and pick the `C:\SNATCHER` folder
-4. The settings page opens. Add your client(s), then pin the SNATCHER icon to the toolbar.
+4. The settings page opens. Add your client(s) and click **Allow** on each one, so the browser lets SNATCHER reach it. Then pin the SNATCHER icon to the toolbar.
+5. Under **Where SNATCHER runs**, tick **Run on every site**, or allow just your trackers (see below).
 
 After you edit any file, click the ↻ reload button on the SNATCHER card in `brave://extensions`, then refresh the tracker tab.
 
@@ -76,6 +77,15 @@ Rules run top to bottom and the first match wins. A match on the torrent's **own
 
 Use the tester box under the rules to try out text, and hover the grey line under each torrent in the popup to see what SNATCHER read from that row.
 
+## Where SNATCHER runs
+
+SNATCHER asks for access one site at a time instead of to every site at install:
+
+- **Sites you allow** run SNATCHER by themselves, so clicking a torrent link there goes straight to the picker. To allow a site, open the panel on it (toolbar icon or Alt+Shift+S) and click **Always run here**, or add it under Settings → **Where SNATCHER runs**.
+- **Any other site**: click the toolbar icon to use SNATCHER on that page once. The browser gives it access to that tab until you leave the page.
+- **Run on every site** (in settings) gives the old behaviour: it works everywhere with no prompts.
+- Each **client's address** must be allowed once: click **Allow** on its card, or **Test connection**. Until then, sending to it says so.
+
 ## Using it
 
 - **Click a torrent download/magnet link** to get a small picker with the detected folder already selected. Press Enter or click **Snatch**. Alt/Ctrl/Shift-click downloads the file normally. In settings you can switch off the picker so clicks send straight away.
@@ -114,6 +124,18 @@ What each app receives:
 ## Notes
 
 - Settings, including passwords, live in `chrome.storage.local` on this machine only and are not synced. **Export settings** writes them, passwords included, to a JSON file. Keep it private.
-- The extension asks for access to all sites so it works on any tracker and any seedbox URL.
+- Privacy policy: [PRIVACY.md](PRIVACY.md).
 - If a tracker's download links aren't spotted, add a regex for them under *Behaviour → Extra download-link pattern*.
 - `test/` holds the dummy tracker page, the mock servers and their test pages. None of it is part of the extension.
+
+## Publishing
+
+```
+python build.py
+```
+
+This makes `dist/snatcher-<version>.zip` with only the extension's own files: no tests, store images or settings exports. Upload it in the Chrome Web Store Developer Dashboard. Microsoft Edge Add-ons takes the same zip.
+
+`store/LISTING.md` has every text the dashboard asks for, ready to paste: description, permission justifications, data-use answers and reviewer instructions. `store/images/` has the screenshots and the promo tile. They're made from `store/demo.html` (a made-up tracker listing only free, legal torrents), `store/settings.html` and `store/promo.html`, served by `test/mock_clients.py`.
+
+Bump `version` in `manifest.json` for every upload; the store refuses a version it has already seen.

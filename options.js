@@ -58,11 +58,25 @@ const destOptions = () => s.destinations.map(d => [d.id, d.name || '(unnamed)'])
 function renderClients() {
   const box = $('clients');
   box.innerHTML = '';
-  if (!s.clients.length) box.append(el('p', { className: 'help', textContent: 'No clients yet — add your seedbox / local ruTorrent.' }));
+  if (!s.clients.length) box.append(el('p', { className: 'help', textContent: 'No clients yet — click + Add client and pick your torrent app.' }));
+  accessCheckers = [];
   s.clients.forEach((c, idx) => {
     const result = el('span', { className: 'result' });
+    // The browser has to OK each client's address once (Allow button, or Test connection).
+    const access = el('div', { className: 'access' });
+    const showAccess = async () => {
+      const p = SN.sitePattern(c.url);
+      access.innerHTML = '';
+      if (!p || !chrome.permissions || (await chrome.permissions.contains({ origins: [p] })) !== false) return;
+      const allow = el('button', { textContent: 'Allow', className: 'small primary' });
+      allow.onclick = async () => { await chrome.permissions.request({ origins: [p] }); showAccess(); };
+      access.append(el('span', { className: 'result bad', textContent: `SNATCHER needs your OK to reach ${new URL(p.slice(0, -1)).hostname} — the browser will ask once.` }), allow);
+    };
+    accessCheckers.push(showAccess);
     const test = el('button', { textContent: 'Test connection', className: 'small' });
     test.onclick = async () => {
+      const p = SN.sitePattern(c.url);
+      if (p && chrome.permissions) { await chrome.permissions.request({ origins: [p] }).catch(() => {}); showAccess(); }
       result.className = 'result'; result.textContent = 'Testing…';
       const r = await chrome.runtime.sendMessage({ type: 'testClient', client: c });
       result.className = 'result ' + (r.ok ? 'ok' : 'bad');
@@ -86,7 +100,7 @@ function renderClients() {
     const fields = [
       el('label', {}, ['Name', input(c, 'name', { placeholder: 'Seedbox', onedit: refreshClientSelects })]),
       el('label', {}, ['App', typeSel]),
-      el('label', { style: 'grid-column: span 2', title: info.help }, [`${app} address`, input(c, 'url', { placeholder: `http://192.168.1.10${port}` })])
+      el('label', { style: 'grid-column: span 2', title: info.help }, [`${app} address`, input(c, 'url', { placeholder: `http://192.168.1.10${port}`, onedit: () => showAccess() })])
     ];
     if (type !== 'deluge') fields.push(el('label', {}, ['Username', input(c, 'username', { autocomplete: 'off' })]));
     fields.push(el('label', {}, [type === 'deluge' ? 'Web UI password' : 'Password', input(c, 'password', { type: 'password', autocomplete: 'new-password' })]));
@@ -108,8 +122,10 @@ function renderClients() {
         el('label', { title: labelsTip }, [sendLabelsCheck(c), type === 'qbittorrent' ? 'Send categories' : 'Send labels']),
         el('label', { title: `Let ${app} download the .torrent itself instead of SNATCHER uploading it. Only works if the link contains your passkey.` }, [check(c, 'alwaysUrl'), 'Always send URL']),
         test, result, el('span', { className: 'spacer' }), del
-      ])
+      ]),
+      access
     ]));
+    showAccess();
   });
 }
 
@@ -169,7 +185,7 @@ function renderDests() {
       el('td', { className: 'c' }, [def]),
       el('td', {}, [input(d, 'name', { onedit: refreshDestSelects })]),
       el('td', {}, [cs]),
-      el('td', {}, [input(d, 'directory', { placeholder: '(ruTorrent default)' })]),
+      el('td', {}, [input(d, 'directory', { placeholder: "(client's default)" })]),
       el('td', {}, [input(d, 'label')]),
       el('td', { className: 'c' }, [check(d, 'notAddPath')]),
       (() => {
@@ -413,6 +429,55 @@ $('copyLog').onclick = async () => {
 };
 $('clearLog').onclick = async () => { await chrome.storage.local.set({ connLog: [] }); $('connLog').textContent = '(cleared)'; };
 
-function renderAll() { renderClients(); renderDests(); renderRules(); renderBehaviour(); runTest(); }
+// ---------- where SNATCHER runs (site permissions) ----------
+
+let accessCheckers = [];
+
+async function renderSites() {
+  const box = $('sites');
+  if (!chrome.permissions) return;
+  const { origins = [] } = (await chrome.permissions.getAll()) || {};
+  const all = SN.ALL_SITES.every(p => origins.includes(p));
+  $('allSites').checked = all;
+  const clientPatterns = new Set(s.clients.map(c => SN.sitePattern(c.url)).filter(Boolean));
+  const sites = origins.filter(o => !SN.ALL_SITES.includes(o) && /^https?:\/\/[^*]/.test(o));
+  box.innerHTML = '';
+  if (!sites.length) {
+    box.append(el('p', { className: 'help', textContent: all ? 'Every site is allowed.' : 'No sites yet. Open the panel on a tracker (toolbar icon) and click "Always run here", or add one below.' }));
+  }
+  sites.forEach(o => {
+    const host = o.replace(/^https?:\/\/|\/\*$/g, '');
+    const del = el('button', { textContent: 'Remove', className: 'small danger' });
+    del.onclick = async () => { await chrome.permissions.remove({ origins: [o] }); };
+    box.append(el('div', { className: 'site' }, [
+      el('span', { textContent: host }),
+      el('span', { className: 'help', textContent: clientPatterns.has(o) ? ' (a client)' : o.startsWith('http:') ? ' (http)' : '' }),
+      del
+    ]));
+  });
+}
+
+$('allSites').onchange = async e => {
+  if (e.target.checked) await chrome.permissions.request({ origins: SN.ALL_SITES });
+  else await chrome.permissions.remove({ origins: SN.ALL_SITES });
+  renderSites();
+};
+$('siteAddBtn').onclick = async () => {
+  const v = $('siteAdd').value.trim();
+  if (!v) return;
+  const p = SN.sitePattern(v.includes('://') ? v : 'https://' + v);
+  if (!p) { $('siteAdd').value = ''; return; }
+  if (await chrome.permissions.request({ origins: [p] })) $('siteAdd').value = '';
+};
+if (chrome.permissions && chrome.permissions.onAdded) {
+  const changed = () => { renderSites(); accessCheckers.forEach(f => f()); };
+  chrome.permissions.onAdded.addListener(changed);
+  chrome.permissions.onRemoved.addListener(changed);
+}
+
+function renderAll() { renderClients(); renderDests(); renderRules(); renderBehaviour(); renderSites(); runTest(); }
+
+// "+ Add test server" is for development (test/mock_rutorrent.py); store installs don't show it.
+try { if ('update_url' in chrome.runtime.getManifest()) $('addTest').hidden = true; } catch (e) { /* stubbed in tests */ }
 
 SN.getSettings().then(x => { s = x; renderAll(); });

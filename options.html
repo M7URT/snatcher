@@ -16,8 +16,8 @@
       <code>http://192.168.1.10:8112</code> (Deluge), <code>:8080</code> (qBittorrent) or <code>:9091</code> (Transmission).
       Coming from Add Remote Torrent? Export its settings, then use <b>Import from Add Remote Torrent</b> below to bring over your server, password and every download folder.</p>
     <div id="clients"></div>
-    <button id="addClient">+ Add client</button>
-    <label class="button primary">Import from Add Remote Torrent…<input type="file" id="importArt" accept=".json,application/json" hidden></label>
+    <button id="addClient" class="primary">+ Add client</button>
+    <label class="button">Import from Add Remote Torrent…<input type="file" id="importArt" accept=".json,application/json" hidden></label>
     <button id="addTest" title="Adds a client pointing at test/mock_rutorrent.py running on this PC">+ Add test server</button>
   </section>
 
@@ -53,7 +53,16 @@
   </section>
 
   <section>
-    <h2>4 · Behaviour</h2>
+    <h2>4 · Where SNATCHER runs</h2>
+    <p class="help">SNATCHER only runs on a site by itself once you've allowed it. On any other site, click its toolbar icon (or Alt+Shift+S)
+      to use it there once; the panel then offers <b>Always run here</b>. On allowed sites, clicking a torrent link goes straight to SNATCHER.</p>
+    <label class="check"><input type="checkbox" id="allSites"> Run on every site (the browser asks you once)</label>
+    <div id="sites"></div>
+    <div class="tester"><input id="siteAdd" placeholder="Add a site, e.g. tracker.example.org"><button id="siteAddBtn">Allow</button></div>
+  </section>
+
+  <section>
+    <h2>5 · Behaviour</h2>
     <label class="check"><input type="checkbox" data-opt="interceptClicks"> Clicking a torrent/magnet link sends it to SNATCHER (Alt/Ctrl/Shift-click downloads normally)</label>
     <label class="check"><input type="checkbox" data-opt="confirmOnClick"> Show a folder picker on click (untick to send straight to the auto-detected folder)</label>
     <label class="check"><input type="checkbox" data-opt="skipDuplicates"> Skip torrents that are already on the client they're going to (checked by info-hash, then by name)</label>
@@ -69,7 +78,7 @@
   </section>
 
   <section>
-    <h2>5 · Backup</h2>
+    <h2>6 · Backup</h2>
     <p class="help">Export includes your client passwords in plain text — keep the file somewhere safe.</p>
     <button id="export">Export settings</button>
     <label class="button">Import settings<input type="file" id="import" accept=".json,application/json" hidden></label>

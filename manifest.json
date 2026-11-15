@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "SNATCHER",
-  "version": "0.4.1",
-  "description": "Send .torrent and magnet links from the page you're on to your ruTorrent clients, routed to the right folder by section.",
+  "version": "0.5.0",
+  "description": "Send torrents and magnet links from any site to your own qBittorrent, Deluge, Transmission or ruTorrent, sorted into folders.",
   "permissions": ["storage", "contextMenus", "notifications", "scripting", "activeTab", "webRequest", "webRequestAuthProvider", "declarativeNetRequestWithHostAccess"],
-  "host_permissions": ["<all_urls>"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -29,13 +29,5 @@
       "suggested_key": { "default": "Alt+Shift+S" },
       "description": "Open or close the SNATCHER panel on this page"
     }
-  },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["lib/common.js", "content.js", "panel.js"],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
-  ]
+  }
 }

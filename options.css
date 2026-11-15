@@ -13,7 +13,7 @@ input[type=checkbox], input[type=radio] { width: auto; accent-color: var(--accen
 button, .button { display: inline-block; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); background: #2a2e36; color: var(--text); cursor: pointer; font: inherit; margin-right: 6px; }
 button:hover, .button:hover { border-color: var(--dim); }
 button.danger { color: var(--bad); }
-.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.button.primary, button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button.small { padding: 3px 8px; margin: 0 2px; }
 .client { display: grid; grid-template-columns: 1fr 2fr 1fr 1fr; gap: 8px 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; background: var(--bg); }
 .client label { font-size: 12px; color: var(--dim); }
@@ -22,6 +22,10 @@ button.small { padding: 3px 8px; margin: 0 2px; }
 .client .result { color: var(--dim); }
 .client .result.ok { color: var(--ok); } .client .result.bad { color: var(--bad); }
 .client .actions .spacer { flex: 1; }
+.client .access { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.client .access:empty { display: none; }
+.site { display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 13px; }
+.site .help { flex: 1; margin: 0; }
 table.grid { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
 .grid th { text-align: left; font-size: 12px; color: var(--dim); font-weight: 500; padding: 4px 6px; }
 .grid td { padding: 4px 6px; vertical-align: middle; }
@@ -37,3 +41,4 @@ input.bad { border-color: var(--bad); }
 pre.log { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 10px; max-height: 360px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 td.fstat { font-size: 12px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 td.fstat.ok { color: var(--ok); } td.fstat.bad { color: var(--bad); }
+[hidden] { display: none !important; }

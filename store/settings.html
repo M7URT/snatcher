@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SNATCHER settings (store screenshot)</title>
+<!-- Store screenshot: the real settings page with example clients, chrome.* stubbed. Not part of the extension. -->
+<style>html, body { margin: 0; height: 100%; } iframe { border: 0; width: 100%; height: 100%; }</style>
+<script>
+(async () => {
+  const html = await (await fetch('../options.html')).text();
+  const stub = `<script>
+    const store = {
+      clients: [
+        { id: 'home', type: 'qbittorrent', name: 'Home PC', url: 'http://192.168.1.20:8080', username: 'admin', password: 'xxxxxxxx', baseDir: 'D:/Torrents', startPaused: false },
+        { id: 'box', type: 'deluge', name: 'Seedbox', url: 'https://seedbox.example.net:8112', password: 'xxxxxxxx', baseDir: '/home/me/downloads', startPaused: true }
+      ],
+      defaultClientId: 'home',
+      destinations: [
+        { id: 'd_linux', name: 'Linux ISOs', clientId: 'box', directory: 'linux', label: 'linux' },
+        { id: 'd_films', name: 'Films', clientId: 'home', directory: 'films', label: 'films' },
+        { id: 'd_tv', name: 'Series', clientId: 'home', directory: 'series', label: 'series' },
+        { id: 'd_soft', name: 'Software', clientId: 'box', directory: 'software', label: 'software' }
+      ],
+      defaultDestinationId: 'd_soft',
+      rules: [
+        { id: 'r1', site: '*', scope: 'any', match: 'linux|ubuntu|debian|fedora', destinationId: 'd_linux' },
+        { id: 'r2', site: '*', scope: 'any', match: 'series|season|episodes?', destinationId: 'd_tv' },
+        { id: 'r3', site: '*', scope: 'any', match: 'films?|movies?', destinationId: 'd_films' },
+        { id: 'r4', site: '*', scope: 'any', match: 'software|apps?', destinationId: 'd_soft' }
+      ]
+    };
+    window.chrome = { storage: { local: { get: async () => JSON.parse(JSON.stringify(store)), set: async () => {} }, onChanged: { addListener() {} } },
+      runtime: { sendMessage: async () => ({}), onMessage: { addListener() {} }, getManifest: () => ({ update_url: 'store' }) },
+      permissions: { getAll: async () => ({ origins: ['https://tracker.example/*', 'http://192.168.1.20/*', 'https://seedbox.example.net/*'] }), contains: async () => true,
+        request: async () => true, remove: async () => true, onAdded: { addListener() {} }, onRemoved: { addListener() {} } } };
+  <\/script><base href="${new URL('../', location.href)}">`;
+  const f = document.createElement('iframe');
+  f.srcdoc = html.replace('<head>', '<head>' + stub);
+  document.body.appendChild(f);
+})();
+</script>
+<body></body>

@@ -393,6 +393,7 @@ async function sendItems(items, tabId, notify = true) {
     progress(item.key, 'sending', '', tabId);
     try {
       if (!client) throw new Error('Destination has no client');
+      await needAccess(client);
       const skip = settings.skipDuplicates !== false && !item.force;
       // Already there under the same name? Skip before even downloading the .torrent.
       let onClient = null;
@@ -476,8 +477,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     seedboxState().then(sendResponse).catch(() => sendResponse({ have: {}, sent: {} }));
     return true;
   }
+  if (msg.type === 'siteAccess') {
+    siteAccess(msg.url || (sender.tab && sender.tab.url)).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'askSite') {
+    askSite(msg.url || (sender.tab && sender.tab.url), sender.tab && sender.tab.id);
+  }
+  if (msg.type === 'siteGranted' && msg.tabId != null) {
+    chrome.tabs.sendMessage(msg.tabId, { type: 'siteAllowed' }).catch(() => {});
+  }
   if (msg.type === 'testClient') {
-    adapterFor(msg.client).test(msg.client).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
+    needAccess(msg.client).then(() => adapterFor(msg.client).test(msg.client)).then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
   }
 });
@@ -524,6 +535,53 @@ chrome.commands.onCommand.addListener(async command => {
 });
 applyIconMode();
 
+// ---------- site access ----------
+// SNATCHER only runs by itself on sites you've allowed (or on every site, if you chose that).
+// Anywhere else, clicking its icon runs it on that tab once (activeTab), and the panel offers
+// to remember the site. Clients' addresses are allowed from their card in settings.
+
+let scriptsBusy = Promise.resolve();
+function syncContentScripts() {
+  scriptsBusy = scriptsBusy.then(async () => {
+    const { origins = [] } = (await chrome.permissions.getAll()) || {};
+    const all = SN.ALL_SITES.every(p => origins.includes(p)) || origins.includes('<all_urls>');
+    const matches = all ? SN.ALL_SITES : origins.filter(o => /^https?:\/\/[^*]/.test(o));
+    const old = (await chrome.scripting.getRegisteredContentScripts({ ids: ['sn_page'] })) || [];
+    if (old.length) await chrome.scripting.unregisterContentScripts({ ids: ['sn_page'] });
+    if (matches.length) {
+      await chrome.scripting.registerContentScripts([{ id: 'sn_page', matches, js: PAGE_SCRIPTS, runAt: 'document_idle', persistAcrossSessions: true }]);
+    }
+  }).catch(e => console.warn('SNATCHER content scripts', e));
+  return scriptsBusy;
+}
+if (chrome.permissions && chrome.permissions.onAdded) {
+  chrome.permissions.onAdded.addListener(syncContentScripts);
+  chrome.permissions.onRemoved.addListener(syncContentScripts);
+}
+syncContentScripts();
+
+async function siteAccess(url) {
+  const pattern = SN.sitePattern(url);
+  if (!pattern) return { allowed: false, pattern: '' };
+  const allowed = await chrome.permissions.contains({ origins: [pattern] });
+  return { allowed: allowed !== false, pattern, host: new URL(url).hostname };
+}
+
+// Permission prompts need a click on one of SNATCHER's own pages, so open a small one.
+async function askSite(url, tabId) {
+  const q = new URLSearchParams({ url: url || '', tab: tabId == null ? '' : String(tabId) });
+  await chrome.windows.create({ url: chrome.runtime.getURL('grant.html?' + q), type: 'popup', width: 460, height: 300 });
+}
+
+// Clear message instead of a confusing network error when a client's address isn't allowed yet.
+async function needAccess(client) {
+  const pattern = SN.sitePattern(baseUrl(client));
+  if (!pattern || !chrome.permissions || !chrome.permissions.contains) return;
+  if ((await chrome.permissions.contains({ origins: [pattern] })) === false) {
+    throw new Error(`${client.name}: SNATCHER isn't allowed to reach ${pattern.slice(0, -2)} yet — open SNATCHER settings and click "Allow" on this client`);
+  }
+}
+
 // ---------- qBittorrent: give SNATCHER's requests the client's own Origin ----------
 // qBittorrent's CSRF protection refuses requests whose Origin/Referer isn't its own address.
 // Requests a page makes are untouched: the rule only applies to requests from SNATCHER itself
@@ -552,9 +610,11 @@ syncHeaderRules().catch(e => console.warn('SNATCHER header rules', e));
 
 chrome.runtime.onInstalled.addListener(details => {
   buildMenus();
+  syncContentScripts(); // an update clears registered page scripts, so register them again
+
   if (details.reason === 'install') chrome.runtime.openOptionsPage();
 });
-chrome.runtime.onStartup.addListener(buildMenus);
+chrome.runtime.onStartup.addListener(() => { buildMenus(); syncContentScripts(); });
 chrome.storage.onChanged.addListener(changes => {
   if (changes.destinations || changes.clients) buildMenus();
   if (changes.clients) syncHeaderRules().catch(() => {});
