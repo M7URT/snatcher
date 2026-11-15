@@ -39,6 +39,8 @@ python test/mock_clients.py
 - `http://127.0.0.1:8095/src/test/links-test.html` (and `?plain`): which links count as torrents, and clean names
 - `http://127.0.0.1:8095/src/test/options-test.html`: the settings page draws every app's client card
 
+**Real apps.** `test/real-test.html` runs the same checks through the real extension against real installs. It was last run against qBittorrent 5.3.0 and Deluge 2.2.0 on Windows, and everything passed. Use a throwaway browser profile, because it overwrites SNATCHER's settings: load the extension in that profile, start `mock_clients.py`, then open `chrome-extension://<id>/test/real-test.html?clients=qbittorrent,deluge&dl=<download folder>`. The default logins are qBittorrent `admin` / `snatchertest1` and the Deluge Web UI password `deluge`. Change them with `qbpass=` / `depass=`.
+
 For ruTorrent:
 
 By default it asks for a Digest login, the same as dediseedbox. Add `--basic` to test a Basic-login seedbox instead. Then click **+ Add test server** in settings. That adds `TEST (local mock)` at `http://127.0.0.1:8090` with path `/rutorrent`, user `test` and password `snatcher-test`, plus a **TEST (mock server)** folder. Anything you send to that folder is printed in the terminal (folder, label, paused, file or magnet), and uploaded `.torrent` files are saved to `test/received/`. Nothing is downloaded.

@@ -223,7 +223,6 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, [{'hash': h.lower(), 'name': t['name']} for h, t in STATE['qbit'].items()])
         if path == 'torrents/add':
             f = self.multipart(raw)
-            added = False
             items = []
             for data in f.get('torrents', []):
                 name = re.search(rb'4:name(\d+):', data)
@@ -234,11 +233,15 @@ class H(BaseHTTPRequestHandler):
             if not items:
                 return self.send(415, 'Torrent file is not valid')
             val = lambda k: (f.get(k) or [b''])[0].decode()
+            new = 0
             for h, name in items:
                 if h not in STATE['qbit']:
                     STATE['qbit'][h] = {'name': name, 'dir': val('savepath'), 'label': val('category'), 'paused': val('stopped') or val('paused')}
-                    added = True
-            return self.send(200, 'Ok.' if added else 'Fails.')
+                    new += 1
+            # Answer like qBittorrent 5.x (checked against a real 5.3.0): JSON counts, 409 when nothing was new
+            if not new:
+                return self.send(409, 'Conflict')
+            return self.send(200, {'added_torrent_ids': [], 'failure_count': len(items) - new, 'pending_count': 0, 'success_count': new})
         return self.send(404, 'Not Found')
 
     # ---------- Transmission ----------

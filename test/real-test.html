@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SNATCHER real-client test</title>
+<!-- End-to-end test against REAL qBittorrent / Deluge / Transmission installs, run as an extension page
+     (chrome-extension://<id>/test/real-test.html) so every request goes through the real background worker.
+     Needs test/mock_clients.py running on :8095 (it serves the sample torrents and collects the report).
+     Use a throwaway profile: this overwrites SNATCHER's settings in it.
+     Query: ?clients=qbittorrent,deluge,transmission&dl=<download folder on the client>
+     Default logins match a test install: qBittorrent admin / snatchertest1, Deluge Web UI password deluge. -->
+<pre id="out">running…</pre>
+<script src="real-test.js"></script>

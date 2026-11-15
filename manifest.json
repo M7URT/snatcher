@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SNATCHER",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Send .torrent and magnet links from the page you're on to your ruTorrent clients, routed to the right folder by section.",
   "permissions": ["storage", "contextMenus", "notifications", "scripting", "activeTab", "webRequest", "webRequestAuthProvider", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["<all_urls>"],

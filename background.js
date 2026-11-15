@@ -192,8 +192,8 @@ function loginError(client, res) {
 function fullDirectory(client, directory) {
   const d = (directory || '').trim();
   if (!d) return '';
-  if (d.startsWith('/') || d.startsWith('~')) return d;
-  const base = (client.baseDir || '').trim().replace(/\/+$/, '');
+  if (d.startsWith('/') || d.startsWith('~') || /^([A-Za-z]:[\\/]|\\\\)/.test(d)) return d; // also C:\… and \\server\… for clients on Windows
+  const base = (client.baseDir || '').trim().replace(/[\\/]+$/, '');
   if (!base) throw new Error(`${client.name}: folder "${d}" isn't a full path — set the server's Base folder in SNATCHER settings`);
   return `${base}/${d}`;
 }
