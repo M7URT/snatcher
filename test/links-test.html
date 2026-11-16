@@ -6,7 +6,25 @@
 <div id="page"></div>
 <script>
   const plain = location.search.includes('plain');
-  document.getElementById('page').innerHTML = plain ? `
+  const details = location.search.includes('details');
+  // ?details: a single-torrent page like TorrentDay's: the category is a tag chip outside the
+  // Download button's row, and "related torrents" rows have a picture-only category icon
+  // (same alt "Category" for every category) plus an info line naming the category.
+  document.getElementById('page').innerHTML = details ? `
+    <nav><a class="nav-cat" href="/t?1">Movies</a></nav>
+    <h1>Planet Walks 2026 2160p WEB-DL</h1>
+    <section class="bar"><div><a href="/torrent.php?id=1&amp;filelist=1#filelist">3 files</a></div>
+      <a class="bar__dl" href="/download.php/1/Planet%20Walks%202026%202160p%20WEB-DL.torrent">Download 9.42 GB</a></section>
+    <div class="tags"><a href="/t?30" class="chip chip--cat">Documentary</a> <a href="/t?q=2026" class="chip">2026</a></div>
+    <form><select><option value="1">Movies</option><option value="30" selected>Documentary</option></select></form>
+    <div class="related">
+      <div class="item"><div class="related-cat-icon"><img src="/img/30.png" alt="Category"></div>
+        <div><a href="/torrent.php?id=2">Planet Walks (2026) 1080p WEBRip-AAA</a><div class="item-meta">2 days ago • 2026 Documentary 1080p</div></div>
+        <a href="/download.php/2/Planet%20Walks%20(2026)%201080p.torrent"><img src="/img/dl.png" alt="Download"></a></div>
+      <div class="item"><div class="related-cat-icon"><img src="/img/14.png" alt="Category"></div>
+        <div><a href="/torrent.php?id=3">Some Film 2026 1080p WEB-DL-BBB</a><div class="item-meta">1 day ago • 2026 Movies 1080p</div></div>
+        <a href="/download.php/3/Some%20Film.torrent"><img src="/img/dl.png" alt="Download"></a></div>
+    </div>` : plain ? `
     <h1>Some software site</h1>
     <p><a id="p_dl" href="/download">Download now</a> <a id="p_dl2" href="/download?id=55">Download v2</a>
        <a id="p_exe" href="/files/setup.exe">setup.exe</a> <a id="p_tor" href="/files/linux.iso.torrent">Torrent</a></p>` : `
@@ -31,7 +49,23 @@ setTimeout(async () => {
   const out = [];
   const log = (name, pass, detail) => out.push({ name, pass: !!pass, detail });
   const kind = id => window.__snatcher.linkKind(document.getElementById(id));
-  if (plain) {
+  if (details) {
+    const items = window.__snatcher.scan().items;
+    const by = n => items.find(i => i.name.startsWith(n)) || {};
+    const main = by('Planet Walks 2026');
+    log('details: main torrent named from its file, not "3 files"', main.name === 'Planet Walks 2026 2160p WEB-DL', items.map(i => i.name).join(' / '));
+    log('details: main torrent gets the category tag of the page', main.catText === 'Documentary', main.catText);
+    const rel = by('Planet Walks (2026)'), film = by('Some Film');
+    log('details: info line under a related torrent is read', /2026 Documentary 1080p/.test(rel.rowContext || ''), rel.rowContext);
+    log('details: generic "Category" icons keep their own keys', rel.catKey === 'icon:30.png' && film.catKey === 'icon:14.png', [rel.catKey, film.catKey].join(' '));
+    const rules = { rules: [
+      { id: 'a', site: '*', scope: 'any', match: 'docu', destinationId: 'doc' },
+      { id: 'b', site: '*', scope: 'any', match: '2160p', destinationId: 'k4' },
+      { id: 'c', site: '*', scope: 'any', match: 'movies?|web-?dl', destinationId: 'mov' }],
+      destinations: [{ id: 'doc' }, { id: 'k4' }, { id: 'mov' }], defaultDestinationId: 'mov' };
+    const pick = i => SN.pickDestination(rules, location.hostname, i.rowContext, 'Planet Walks 2026 2160p WEB-DL', i.catKey, i.catText).destinationId;
+    log('details: routed main → doc, related doc → doc, film → mov', pick(main) === 'doc' && pick(rel) === 'doc' && pick(film) === 'mov', [pick(main), pick(rel), pick(film)].join(' '));
+  } else if (plain) {
     log('plain site: /download is a normal download', kind('p_dl') === null, kind('p_dl'));
     log('plain site: /download?id= is a normal download', kind('p_dl2') === null, kind('p_dl2'));
     log('plain site: .exe is a normal download', kind('p_exe') === null, kind('p_exe'));

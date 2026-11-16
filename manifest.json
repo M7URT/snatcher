@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SNATCHER",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Send torrents and magnet links from any site to your own qBittorrent, Deluge, Transmission or ruTorrent, sorted into folders.",
   "permissions": ["storage", "contextMenus", "notifications", "scripting", "activeTab", "webRequest", "webRequestAuthProvider", "declarativeNetRequestWithHostAccess"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],

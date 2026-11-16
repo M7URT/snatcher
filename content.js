@@ -111,20 +111,23 @@
     return clean(parts.join(''));
   }
 
+  const UTILITY_TEXT = /^(\d[\d,.]*\s*)?(files?|comments?|thanks|bookmark|subscribe|report|seeders?|leechers?|snatch\w*|similar torrents|screenshots?|nfo)(\s*\d[\d,.]*)?$/i;
+
   function titleFor(row, a) {
     const candidates = [...row.querySelectorAll('a[href]')]
-      .filter(x => !linkKind(x) && clean(x.textContent).length > 3)
+      // Not "3 files", "12 comments", "Report"… links that sit next to a torrent's download button.
+      .filter(x => !linkKind(x) && clean(x.textContent).length > 3 && !UTILITY_TEXT.test(clean(x.textContent)))
       .map(x => { const text = nameText(x); return { x, text, score: text.length + (/details|torrents?[\/.?]|[?&]id=/i.test(x.href) ? 200 : 0) }; })
       .sort((p, q) => q.score - p.score);
     if (candidates.length) return candidates[0].text;
     const own = clean(a.getAttribute('title') || a.textContent);
-    if (own.length > 3 && !/^(download|dl|get|torrent)$/i.test(own)) return own;
+    if (own.length > 3 && !/^(download|dl|get)\b|^torrent$/i.test(own)) return own; // not "Download 9.42 GB"
     if (a.href.startsWith('magnet:')) {
       const dn = new URLSearchParams(a.href.slice(a.href.indexOf('?') + 1)).get('dn');
       if (dn) return dn;
     }
     try {
-      const last = decodeURIComponent(new URL(a.href).pathname.split('/').pop() || '');
+      const last = decodeURIComponent(new URL(a.href).pathname.split('/').pop() || '').replace(/\.torrent$/i, '');
       if (last) return last;
     } catch (e) { /* ignore */ }
     return a.href;
@@ -170,6 +173,11 @@
     row.querySelectorAll('[class*="cat" i], [data-category]').forEach(el => {
       bits.push(el.getAttribute('data-category') || '', clean(el.textContent).slice(0, 80));
     });
+    // The short info line under a name, e.g. "2 days ago • 2026 Documentary 1080p", and genre tags.
+    row.querySelectorAll('[class*="meta" i], [class*="genre" i], [class*="subtitle" i]').forEach(el => {
+      const t = clean(el.textContent);
+      if (t.length < 120) bits.push(t);
+    });
     bits.push(title);
     return [...new Set(bits.map(clean).filter(Boolean))].join(' | ').slice(0, 1000);
   }
@@ -185,11 +193,35 @@
     }
     const img = row.querySelector('img[alt], img[title]');
     const alt = img && clean(img.getAttribute('alt') || img.getAttribute('title'));
-    if (alt && alt.length < 60 && !/download|magnet|bookmark|free|new|seed|leech/i.test(alt)) return 'icon:' + alt;
+    // Some trackers give every category icon the same alt ("Category"); then the picture's
+    // file name ("30.png") is what tells the categories apart.
+    if (alt && /^(categor(y|ies)|cat|icon|image|img|type|genre)$/i.test(alt)) {
+      const file = (img.getAttribute('src') || '').split(/[?#]/)[0].split('/').pop();
+      if (file) return 'icon:' + file;
+    } else if (alt && alt.length < 60 && !/download|magnet|bookmark|free|new|seed|leech/i.test(alt)) return 'icon:' + alt;
     const cat = row.querySelector('[data-category], [class*="cat" i]');
     const t = cat && clean(cat.getAttribute('data-category') || cat.textContent);
     if (t && t.length < 60) return 'cat:' + t;
     return '';
+  }
+
+  // The category of a single-torrent page, e.g. TorrentDay's orange "Documentary" tag: short "cat"
+  // elements that aren't in any torrent's row, a menu, a filter form or the header/footer. Used as
+  // the category of a torrent whose own row has none (the big Download button on a details page).
+  // Nothing is returned when there are more than 3, which looks like a category list, not a tag.
+  function pageCategory(rows) {
+    const skip = 'nav, header, footer, aside, form, select, label, [class*="menu" i], [class*="nav" i], [class*="sidebar" i], [class*="filter" i]';
+    const texts = new Set();
+    document.querySelectorAll('[data-category], [class*="categor" i], [class~="cat" i], [class*="-cat" i], [class*="_cat" i]').forEach(el => {
+      if (el.closest(skip) || rows.some(r => r.contains(el) || el.contains(r))) return;
+      const t = clean(el.getAttribute('data-category') || el.textContent);
+      if (t && t.length < 40) texts.add(t);
+    });
+    return texts.size && texts.size <= 3 ? [...texts].join(' | ') : '';
+  }
+
+  function torrentRows() {
+    return [...new Set([...document.querySelectorAll('a[href]')].filter(a => linkKind(a)).map(rowOf))];
   }
 
   function pageContext() {
@@ -301,6 +333,7 @@
     const name = titleFor(row, a);
     const item = { key: a.href, name, torrentUrl: '', magnetUrl: '', rowContext: rowContextFor(row, name), seeders: seedersFor(row), size: sizeFor(row), catKey: categoryKeyFor(row), catText: catTextFor(row) };
     if (kind === 'magnet') item.magnetUrl = a.href; else item.torrentUrl = a.href;
+    if (!item.catText && !item.catKey) item.catText = pageCategory(torrentRows());
     // grab the sibling link of the other kind from the same row
     row.querySelectorAll('a[href]').forEach(x => {
       const k = linkKind(x);
@@ -330,7 +363,12 @@
     const seen = new Set();
     const items = [];
     rowsByKey.clear();
+    let pageCat = null;
     for (const [row, item] of byRow.entries()) {
+      if (!item.catText && !item.catKey) {
+        if (pageCat === null) pageCat = pageCategory([...byRow.keys()]);
+        item.catText = pageCat;
+      }
       item.key = item.torrentUrl || item.magnetUrl;
       if (seen.has(item.key)) continue;
       seen.add(item.key);
